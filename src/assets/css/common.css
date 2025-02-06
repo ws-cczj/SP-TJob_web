@@ -1,0 +1,84 @@
+.tw-mx-1 {
+    margin-left: 5px;
+    margin-right: 5px;
+}
+.tw-mx-2 {
+    margin-left: 8px;
+    margin-right: 8px;
+}
+.tw-mx-3 {
+    margin-left: 10px;
+    margin-right: 10px;
+}
+.tw-mx-4 {
+    margin-left: 15px;
+    margin-right: 15px;
+}
+.tw-mx-5 {
+    margin-left: 20px;
+    margin-right: 20px;
+}
+
+.tw-mr-1 {
+    margin-right: 5px;
+}
+
+.tw-mr-2 {
+    margin-right: 8px;
+}
+.tw-mr-3 {
+    margin-right: 10px;
+}
+.tw-mr-4 {
+    margin-right: 15px;
+}
+.tw-mr-5 {
+    margin-right: 20px;
+}
+
+.tw-mt-1 {
+    margin-top: 5px;
+}
+
+.tw-mt-2 {
+    margin-top: 8px;
+}
+
+.tw-mt-3 {
+    margin-top: 10px;
+}
+
+.tw-mt-4 {
+    margin-top: 15px;
+}
+
+.tw-mt-5 {
+    margin-top: 20px;
+}
+.tw-flex {
+    display: flex;
+}
+
+.tw-width-38 {
+    width: 38px;
+}
+
+.tw-flex-none {
+    flex: none;
+}
+
+.tw-flex-auto {
+    flex: 1 1 auto;
+}
+.tw-cursor-pointer {
+    cursor: pointer;
+}
+
+.tw-text-gray-600 {
+    --tw-text-opacity: 1;
+    color: rgba(153, 153, 153, var(--tw-text-opacity));
+}
+
+.tw-items-center {
+    align-items: center;
+}
