@@ -1,8 +1,8 @@
 <script lang="ts" setup>
 import type { FormInstance, FormRules } from 'element-plus'
 import { ref } from 'vue'
-import { smsSend, login, register } from '../gateway/api'
-import { alertBox, confirmBox, infoMsg, successMsg } from '../utils/message/message'
+import { smsSend, login, register, updateInfo } from '../gateway/api'
+import { alertBox, confirmBox, infoMsg, successMsg, warnMsg } from '../utils/message/message'
 import { clearStorage, getStorageFromKey, setStorage } from '../utils/storage/config'
 import { Log } from '../utils/log/log'
 import BaseThemeMode from './BaseThemeMode.vue'
@@ -103,6 +103,7 @@ const navs = ref([{
 ])
 // 控制头像抽屉的显示与隐藏
 const drawerVisible = ref(false);
+const innerDrawer = ref(false);
 const drawerMenuType = ref('collect');
 const dailyImage = ref('https://img-baofun.zhhainiao.com/fs/7f66bf9152c32f79205ca3a77a5af6df.jpg')
 const dailyinit = () => {
@@ -222,6 +223,85 @@ const isLogin = (typeName: string = 'show'): boolean => {
     }
     return true
 }
+// 设置
+const ruleFormRef = ref<FormInstance | null>(null)
+const ruleForm = ref<UserResp>({
+    id: user.value.id,
+    user_id: user.value.user_id,
+    score: user.value.score,
+    collect_count: user.value.collect_count,
+    publish_count: user.value.publish_count,
+    nickname: user.value.nickname,
+    password: user.value.password,
+    gender: user.value.gender,
+    mobile: user.value.mobile,
+    avatar: user.value.avatar,
+    email: user.value.email,
+    signature: user.value.signature
+})
+const rules = ref({
+    nickname: [
+        { required: true, message: '请输入昵称', trigger: 'blur' },
+        { min: 2, max: 32, message: '长度在 2 到 32 个字符', trigger: 'blur' },
+        {
+            validator: (rule: any, value: string, callback: (error?: Error) => void) => {
+                if (getStorageFromKey('cczj_nickname')) {
+                    warnMsg('30天内不可以重复修改昵称')
+                    callback(new Error('30天内不可以重复修改昵称'))
+                } else if (!/^[a-zA-Z0-9_\u4e00-\u9fa5]+$/.test(value)) {
+                    callback(new Error('昵称只能包含中文、英文、数字'))
+                } else {
+                    callback()
+                }
+            },
+            message: '昵称只能包含中文、英文、数字',
+            trigger: 'blur',
+        }
+    ],
+    password: [
+        { required: true, message: '请输入密码', trigger: 'blur' }
+        , {
+            min: 6,
+            max: 20,
+            message: '请输入6-20位的密码',
+            trigger: 'blur'
+        }
+    ],
+    email: [
+        { pattern: /^(?=.{11,11}$)\d+|.*@.*/, message: '请输入正确邮箱地址', trigger: 'blur' }
+    ],
+})
+
+// 个人信息提交
+const settingBtn = () => {
+    const withNickname = user.value.nickname !== ruleForm.value.nickname
+    const then = () => {
+        ruleFormRef.value?.validate(async (valid: boolean) => {
+            if (valid) {
+                // 设置处理
+                const data = await updateInfo('/user/setting', ruleForm.value)
+                if (!data) {
+                    Log.error('components/BaseHeaderComponent', '设置失败', data)
+                    return
+                }
+                if (withNickname) {
+                    setStorage('cczj_nickname', ruleForm.value.nickname)
+                }
+                setStorage('cczj_user', ruleForm.value)
+                user.value = ruleForm.value
+                Log.info('components/BaseHeaderComponent', '设置成功', ruleForm.value)
+                innerDrawer.value = false
+            }
+        })
+    }
+    // 只有修改名字才会提示
+    if (withNickname) {
+        confirmBox('确定提交吗? 昵称30天内只能修改一次噢！', '提交', '确定', '取消', then)
+    } else {
+        then()
+    }
+}
+
 // 退出登录
 const Logout = () => {
     confirmBox('确定退出登录吗？', '退出登录', '退出', '取消', () => {
@@ -269,10 +349,10 @@ const Logout = () => {
                     </template>
                 </el-autocomplete>
             </div>
-            <div class="header-publish-job-wrap tw-mx-5">
+            <div class="header-publish-job-wrap cczj-mx-5">
                 <el-dropdown placement="bottom-start">
                     <a @click="isLogin('click')"
-                        class="recruit tw-flex tw-items-center tw-cursor-pointer el-dropdown-selfdefine"
+                        class="recruit cczj-flex cczj-items-center cczj-cursor-pointer el-dropdown-selfdefine"
                         href="javascript:void(0)">
                         我要招人
                         <svg viewBox="0 0 1024 1024" fill="currentColor" width="14" height="14">
@@ -284,17 +364,19 @@ const Logout = () => {
                     <template #dropdown>
                         <ul>
                             <li tabindex="-1" class="dropdown-item-publish-job">
-                                <a @click="isLogin('click')" href="javascript:void(0)" class="tw-flex tw-items-center">
+                                <a @click="isLogin('click')" href="javascript:void(0)"
+                                    class="cczj-flex cczj-items-center">
                                     <img src="https://static.nowcoder.com/fe/file/images/web/header/headerPublishJob.png"
-                                        class="tw-width-38 tw-mr-2 tw-flex-none">
-                                    <div class="tw-flex-auto">
+                                        class="cczj-width-38 cczj-mr-2 cczj-flex-none">
+                                    <div class="cczj-flex-auto">
                                         <div style="font-size:16px;line-height:16px;font-weight:500;">
                                             发布职位
                                         </div>
-                                        <div class="tw-mt-2 tw-text-gray-600" style="font-size:12px;line-height:12px;">
+                                        <div class="cczj-mt-2 cczj-text-gray-600"
+                                            style="font-size:12px;line-height:12px;">
                                             发布职位、邀约牛人
                                         </div>
-                                    </div> <span class="ncicon tw-flex-none  ncicon-bleed"><svg focusable="false"
+                                    </div> <span class="ncicon cczj-flex-none  ncicon-bleed"><svg focusable="false"
                                             viewBox="0 0 12 12" fill="currentColor" width="12" height="12">
                                             <defs>
                                                 <filter color-interpolation-filters="auto">
@@ -311,19 +393,21 @@ const Logout = () => {
                                         </svg></span>
                                 </a>
                             </li>
-                            <li tabindex="-1" class="dropdown-item-more-solution tw-mt-2">
-                                <a @click="isLogin('click')" href="javascript:void(0)" class="tw-flex tw-items-center">
+                            <li tabindex="-1" class="dropdown-item-more-solution cczj-mt-2">
+                                <a @click="isLogin('click')" href="javascript:void(0)"
+                                    class="cczj-flex cczj-items-center">
                                     <img src="https://static.nowcoder.com/fe/file/images/web/header/headerMoreSolution.png"
-                                        class="tw-w-38 tw-mr-2 tw-flex-none">
-                                    <div class="tw-flex-auto">
+                                        class="cczj-w-38 cczj-mr-2 cczj-flex-none">
+                                    <div class="cczj-flex-auto">
                                         <div style="font-size:16px;line-height:16px;font-weight:500;">
                                             更多企业解决方案
                                         </div>
-                                        <div class="tw-mt-2 tw-text-gray-600" style="font-size:12px;line-height:12px;">
+                                        <div class="cczj-mt-2 cczj-text-gray-600"
+                                            style="font-size:12px;line-height:12px;">
                                             在线笔面试、雇主品牌宣传
                                         </div>
                                     </div> <span tagtype="span" aria-label="RightToMore"
-                                        class="ncicon tw-flex-none  ncicon-bleed"><svg focusable="false"
+                                        class="ncicon cczj-flex-none  ncicon-bleed"><svg focusable="false"
                                             viewBox="0 0 12 12" fill="currentColor" width="12" height="12">
                                             <defs>
                                                 <filter color-interpolation-filters="auto">
@@ -351,75 +435,107 @@ const Logout = () => {
                     <span>登录 / 注册</span>
                 </el-button>
             </div>
-            <div v-show="!isLogin('show')">
-                <div v-el-drawer-drag-width class="avatar-container">
-                    <!-- 点击头像触发抽屉 -->
-                    <el-avatar :size="36" :src="user?.avatar" @click="drawerVisible = true" />
-                    <!-- 抽屉 -->
-                    <el-drawer v-model="drawerVisible" :direction="'rtl'" :size="drawerWidth">
-                        <template #header="{ titleId, titleClass }">
-                            <h4 :id="titleId" :class="titleClass">个人中心</h4>
-                            <span class="header-score">个人信用分：{{ user?.score }} 分</span>
-                        </template>
-                        <!-- 抽屉内容 -->
-                        <div class="drawer-info">
-                            <div class="drawer-info-left">
-                                <el-avatar :size="100" :src="user?.avatar" />
+            <div v-show="!isLogin('show')" v-el-drawer-drag-width class="avatar-container">
+                <!-- 点击头像触发抽屉 -->
+                <el-avatar class="cczj-cursor-pointer" :size="36" :src="user?.avatar" @click="drawerVisible = true" />
+                <!-- 抽屉 -->
+                <el-drawer v-model="drawerVisible" :direction="'rtl'" :size="drawerWidth">
+                    <template #header="{ titleId, titleClass }">
+                        <h4 :id="titleId" :class="titleClass">个人中心</h4>
+                        <span class="header-score">个人信用分：{{ user?.score }} 分</span>
+                    </template>
+                    <!-- 抽屉内容 -->
+                    <div class="drawer-info">
+                        <div class="drawer-info-left">
+                            <el-avatar :size="100" :src="user?.avatar" />
+                        </div>
+                        <div class="drawer-info-right">
+                            <div class="drawer-info-name">
+                                捶友昵称：
+                                <span class="drawer-nickname">
+                                    {{ user?.nickname }}
+                                </span>
                             </div>
-                            <div class="drawer-info-right">
-                                <div class="drawer-info-name">
-                                    捶友昵称：
-                                    <span class="drawer-nickname">
-                                        {{ user?.nickname }}
-                                    </span>
-                                </div>
-                                <div class="drawer-info-signature">
-                                    签名：
-                                    <span class="drawer-signature">
-                                        {{ user?.signature }}
-                                    </span>
-                                </div>
+                            <div class="drawer-info-signature">
+                                签名：
+                                <span class="drawer-signature">
+                                    {{ user?.signature }}
+                                </span>
                             </div>
                         </div>
-                        <div class="drawer-main">
-                            <div class="slip-menu">
-                                <el-menu text-color="var(--el-menu-text-color)" :ellipsis="false" mode="horizontal"
-                                    :default-active="'1'" class="el-menu-vertical-demo" @select="handleSelect">
-                                    <el-menu-item @click="drawerMenuType = 'collect'" index="1">
-                                        收藏：{{ user.collect_count }}
-                                    </el-menu-item>
-                                    <el-menu-item @click.="drawerMenuType = 'publish'" index="2">
-                                        发布：{{ user.publish_count }}
-                                    </el-menu-item>
-                                    <el-menu-item @click="drawerMenuType = 'message'" index="3">
-                                        消息
-                                    </el-menu-item>
-                                </el-menu>
-                            </div>
-                            <div class="menu-content">
-                                <div v-show="drawerMenuType === 'collect'">收藏</div>
-                                <div v-show="drawerMenuType === 'publish'">发布</div>
-                                <div v-show="drawerMenuType === 'message'">消息</div>
-                            </div>
+                    </div>
+                    <div class="drawer-main">
+                        <div class="slip-menu">
+                            <el-menu text-color="var(--el-menu-text-color)" :ellipsis="false" mode="horizontal"
+                                :default-active="'1'" class="el-menu-vertical-demo" @select="handleSelect">
+                                <el-menu-item @click="drawerMenuType = 'collect'" index="1">
+                                    收藏：{{ user.collect_count }}
+                                </el-menu-item>
+                                <el-menu-item @click.="drawerMenuType = 'publish'" index="2">
+                                    发布：{{ user.publish_count }}
+                                </el-menu-item>
+                                <el-menu-item @click="drawerMenuType = 'message'" index="3">
+                                    消息
+                                </el-menu-item>
+                            </el-menu>
                         </div>
-                        <div class="drawer-footer">
-                            <div class="top-content">
-                                <el-button type="info" class="drawer-setting">
-                                    <el-icon :size="16" class="setting-icon">
-                                        <Setting />
-                                    </el-icon>
-                                    <span class="setting-text">
-                                        设置
-                                    </span>
-                                </el-button>
-                                <el-button @click="Logout" class="logout-btn" type="success">退出登录</el-button>
-                            </div>
-                            <div class="bottom-dailyImage">
-                                <img :src="dailyImage" alt="广告位" />
-                            </div>
+                        <div class="menu-content">
+                            <div v-show="drawerMenuType === 'collect'">收藏</div>
+                            <div v-show="drawerMenuType === 'publish'">发布</div>
+                            <div v-show="drawerMenuType === 'message'">消息</div>
                         </div>
-                    </el-drawer>
-                </div>
+                    </div>
+                    <div class="drawer-footer">
+                        <div class="top-content">
+                            <el-button @click="innerDrawer = true" type="info" class="drawer-setting">
+                                <el-icon :size="16" class="setting-icon">
+                                    <Setting />
+                                </el-icon>
+                                <span class="setting-text">
+                                    设置
+                                </span>
+                                <el-drawer v-model="innerDrawer" :size="drawerWidth" :append-to-body="true">
+                                    <template #header="{ titleId, titleClass }">
+                                        <h4 :id="titleId" :class="titleClass">个人中心</h4>
+                                        <span class="header-score">个人信用分：{{ user?.score }} 分</span>
+                                    </template>
+                                    <el-form ref="ruleFormRef" :rules="rules" :model="ruleForm" label-width="auto">
+                                        <el-form-item label="昵称: " prop="nickname">
+                                            <el-tooltip content="30天内不可以重复修改昵称" placement="left">
+                                                <el-input :disabled="getStorageFromKey('cczj_nickname') !== null"
+                                                    v-model="ruleForm.nickname" placeholder="请输入昵称"></el-input>
+                                            </el-tooltip>
+                                        </el-form-item>
+                                        <el-form-item label="密码: " prop="password">
+                                            <el-input type="password" v-model="ruleForm.password" placeholder="请输入密码"
+                                                show-password></el-input>
+                                        </el-form-item>
+                                        <el-form-item label="邮箱: " prop="email">
+                                            <el-input v-model="ruleForm.email" placeholder="请输入邮箱地址"></el-input>
+                                        </el-form-item>
+                                        <el-form-item label="头像: ">
+                                            <el-input v-model="ruleForm.avatar" placeholder="请输入头像地址"></el-input>
+                                        </el-form-item>
+                                        <el-form-item label="签名: ">
+                                            <el-input v-model="ruleForm.signature" type="textarea" />
+                                        </el-form-item>
+                                        <el-form-item label="性别">
+                                            <el-radio-group v-model="ruleForm.gender">
+                                                <el-radio :value="1">男</el-radio>
+                                                <el-radio :value="0">女</el-radio>
+                                            </el-radio-group>
+                                        </el-form-item>
+                                        <el-button @click="settingBtn" type="success">提交</el-button>
+                                    </el-form>
+                                </el-drawer>
+                            </el-button>
+                            <el-button @click="Logout" class="logout-btn" type="success">退出登录</el-button>
+                        </div>
+                        <div class="bottom-dailyImage">
+                            <img :src="dailyImage" alt="广告位" />
+                        </div>
+                    </div>
+                </el-drawer>
             </div>
             <el-dialog v-model="dialogLogin" @close="dialogLogin = false;" class="login-dialog" width="700px"
                 :before-close="handleClose">
@@ -871,10 +987,6 @@ nav .avatar-container .el-avatar:hover {
     border-bottom: 2px solid var(--project_base_color) !important;
 }
 
-.el-menu--horizontal>.el-menu-item.is-active:hover {
-    background-color: var(--project_base_color_hover);
-}
-
 nav .avatar-container .drawer-footer {
     width: 100%;
     height: 100%;
@@ -935,6 +1047,7 @@ nav .avatar-container .drawer-footer .logout-btn {
     width: 100%;
     height: 100%;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    opacity: 0.9;
 }
 
 .avatar-container .drawer-footer .bottom-dailyImage img:hover {
@@ -1099,9 +1212,6 @@ nav .avatar-container .drawer-footer .logout-btn {
 
 :deep(.sparta-login-form .el-form .el-form-item .el-form-item__content) {
     height: 40px;
-}
-
-:deep(.el-form-item__content) {
     font-size: 14px;
     line-height: 40px;
     position: relative;

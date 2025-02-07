@@ -17,7 +17,6 @@ const app = createApp(App)
 app.use(createPinia())
 
 app.use(router as any)
-
 app.use(ElementPlus, { locale: zhCn })
 app.directive('el-drawer-drag-width', elDrawerDrag)
 

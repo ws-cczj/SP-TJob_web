@@ -5,6 +5,7 @@ import type { DataState } from './state';
 interface Action {
 	queryUsers(): void;
 	setDrawerWidth(width: number): void;
+	setDarkMode(isDark: boolean): void;
 }
 
 export type DateActions = CreateActions<string, DataState, Action>;

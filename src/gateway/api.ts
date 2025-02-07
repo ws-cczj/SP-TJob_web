@@ -3,7 +3,7 @@ import client from './request.ts'
 import type { ApiResponse} from './interface/resp.ts';
 import { Log } from '../utils/log/log.ts';
 import { errorMsg } from '../utils/message/message.ts';
-import type { LoginResp, RegisterResp, SmsSendResp } from './interface/userResp.ts';
+import type { LoginResp, RegisterResp, SmsSendResp, UpdateInfoResp } from './interface/userResp.ts';
 
 type Method = 'get' | 'post' | 'put' | 'delete'
 
@@ -27,7 +27,42 @@ class requset {
         Log.warning('gateway/api.ts', msg);
         return null;
       };
-      case ErrLimtMobile: {
+      case ErrUsernameLimit: {
+        errorMsg(msg);
+        Log.warning('gateway/api.ts', msg);
+        return null;
+      };
+      case ErrAvatarLimit: {
+        errorMsg(msg);
+        Log.warning('gateway/api.ts', msg);
+        return null;
+      };
+      case ErrPasswordLimit: {
+        errorMsg(msg);
+        Log.warning('gateway/api.ts', msg);
+        return null;
+      };
+      case ErrGenderLimit: {
+        errorMsg(msg);
+        Log.warning('gateway/api.ts', msg);
+        return null;
+      };
+      case ErrEmailLimit: {
+        errorMsg(msg);
+        Log.warning('gateway/api.ts', msg);
+        return null;
+      };
+      case ErrSignatureLimit: {
+        errorMsg(msg);
+        Log.warning('gateway/api.ts', msg);
+        return null;
+      };
+      case ErrScoreLimit: {
+        errorMsg(msg);
+        Log.warning('gateway/api.ts', msg);
+        return null;
+      };
+      case ErrMobileLimt: {
         errorMsg(msg);
         Log.warning('gateway/api.ts', msg);
         return null;
@@ -47,7 +82,11 @@ class requset {
         Log.warning('gateway/api.ts', msg);
         return null;
       };
-      default: return null;
+      default: {
+        errorMsg(msg);
+        Log.error('gateway/api.ts', msg);
+        return null;
+      }
     }
   }
 
@@ -68,10 +107,17 @@ const req = new requset()
 
 const success = 200 // 成功
 
-const ErrNoAuth = 40001 // 认证失败
+const ErrNoAuth = 40208 // 认证失败
 const ErrNoCompareParams = 40003 // 参数错误
-const ErrLimtMobile = 40005 // 手机号码限制
-const ErrNocomparePassword = 40006 // 用户密码不匹配
+const ErrUsernameLimit = 40004 // 用户名限制
+const ErrMobileLimt = 40005 // 手机号码限制
+const ErrAvatarLimit = 40006 // 头像地址限制
+const ErrPasswordLimit = 40007 // 密码限制
+const ErrGenderLimit = 40008 // 性别限制
+const ErrEmailLimit = 40009 // 邮箱限制
+const ErrSignatureLimit = 40010 // 签名限制
+const ErrScoreLimit = 40011 // 分数不正常
+const ErrNocomparePassword = 40101 // 用户密码不匹配
 
 const ErrServerBusy = 50000 // 服务器繁忙
 const ErrNoCompareCode = 51003 // 验证码错误
@@ -79,5 +125,5 @@ const ErrNoCompareCode = 51003 // 验证码错误
 // 避免函数被全部调用，所以返回一个函数本身，而不是结果
 export const login = (path: string, data: any) => req.post<LoginResp>(path, data)
 export const register = (path: string, data: any) => req.post<RegisterResp>(path, data)
+export const updateInfo = (path: string, data: any) => req.put<UpdateInfoResp>(path, data)
 export const smsSend = (path: string) => req.get<SmsSendResp>(path)
-export const dailyApi = (path: string) => req.get(path)

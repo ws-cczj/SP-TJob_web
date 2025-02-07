@@ -6,6 +6,7 @@ export interface UserResp {
   collect_count: number
   user_id: string
   nickname: string
+  password: string
   avatar: string
   mobile: string
   email: string
@@ -20,6 +21,10 @@ export interface LoginResp {
 export interface RegisterResp {
   token: string
   user: UserResp
+}
+
+export interface UpdateInfoResp {
+  token: string
 }
 
 export interface SmsSendResp {
