@@ -3,9 +3,10 @@ import type { CreateActions } from '../type';
 import type { DataState } from './state';
 
 interface Action {
-	queryUsers(): void;
+  queryUsers(): void;
 	setDrawerWidth(width: number): void;
-	setDarkMode(isDark: boolean): void;
+  setDarkMode(isDark: boolean): void;
+  setMarkDownContent(content: string): void;
 }
 
 export type DateActions = CreateActions<string, DataState, Action>;

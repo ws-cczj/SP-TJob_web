@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import TheIndex from './views/TheIndex.vue';
 </script>
 
 <template>
-  <TheIndex />
+  <router-view />
 </template>
 
 <style scoped>

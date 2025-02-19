@@ -1,8 +1,8 @@
 import { createApp } from 'vue'
 import App from './App.vue'
-import './assets/css/base.css'
-import 'element-plus/dist/index.css';
-import 'element-plus/theme-chalk/dark/css-vars.css'
+import './assets/css/base.css' // globle css
+import 'element-plus/dist/index.css'; // element-plus
+import 'element-plus/theme-chalk/dark/css-vars.css' // drak-theme
 import ElementPlus from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
@@ -17,6 +17,7 @@ const app = createApp(App)
 app.use(createPinia())
 
 app.use(router as any)
+
 app.use(ElementPlus, { locale: zhCn })
 app.directive('el-drawer-drag-width', elDrawerDrag)
 

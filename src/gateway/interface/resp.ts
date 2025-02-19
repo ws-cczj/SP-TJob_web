@@ -4,3 +4,7 @@ export declare interface ApiResponse<T> {
   msg: string;
   data: T;
 }
+
+export interface TokenResp {
+  token: string;
+}

@@ -11,9 +11,18 @@ interface ImportMetaEnv {
   readonly VITE_APP_GATEWAY_WITHCREDENTIALS: boolean;
   //多个变量定义多个...
 }
+declare module '*.json' {
+  const value: any;
+  export default value;
+}
+
+declare module '@bytemd/vue-next' {
+  export const Editor: any;
+  export const Viewer: any;
+}
 
 declare module "*.vue" {
-  import { DefineComponent } from "vue"
+  import type { DefineComponent } from "vue"
   const component: DefineComponent<{}, {}, any>
   export default component
 }

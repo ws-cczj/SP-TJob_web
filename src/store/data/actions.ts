@@ -11,5 +11,10 @@ export const actions: DateActions = {
   setDarkMode(isDark: boolean) {
     if (this.isDark === isDark) return;
     this.isDark = isDark;
+  },
+  setMarkDownContent(content: string) {
+    if (this.markdownContent === content) return;
+    console.log('setMarkDownContent', content);
+    this.markdownContent = content;
   }
 };

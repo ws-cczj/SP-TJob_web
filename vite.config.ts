@@ -27,6 +27,9 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@':path.resolve(__dirname, 'src')
+      },
+      json: {
+        imports: true
       }
     },
     plugins: [

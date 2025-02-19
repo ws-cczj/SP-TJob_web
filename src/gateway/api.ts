@@ -1,9 +1,11 @@
 import type { AxiosResponse } from 'axios';
 import client from './request.ts'
-import type { ApiResponse} from './interface/resp.ts';
 import { Log } from '../utils/log/log.ts';
 import { errorMsg } from '../utils/message/message.ts';
-import type { LoginResp, RegisterResp, SmsSendResp, UpdateInfoResp } from './interface/userResp.ts';
+import type { ApiResponse, TokenResp } from './interface/resp.ts';
+import type { CreateTagResp } from './interface/tagResp.ts';
+import type { LoginResp, RegisterResp, SmsSendResp } from './interface/userResp.ts';
+import type { DraftPostResp } from './interface/postResp.ts';
 
 type Method = 'get' | 'post' | 'put' | 'delete'
 
@@ -123,7 +125,14 @@ const ErrServerBusy = 50000 // 服务器繁忙
 const ErrNoCompareCode = 51003 // 验证码错误
 
 // 避免函数被全部调用，所以返回一个函数本身，而不是结果
-export const login = (path: string, data: any) => req.post<LoginResp>(path, data)
-export const register = (path: string, data: any) => req.post<RegisterResp>(path, data)
-export const updateInfo = (path: string, data: any) => req.put<UpdateInfoResp>(path, data)
-export const smsSend = (path: string) => req.get<SmsSendResp>(path)
+export const login = (loginInfo: any) => req.post<LoginResp>('/user/login', loginInfo)
+export const register = (registerInfo: any) => req.post<RegisterResp>('/user/register', registerInfo)
+export const updateInfo = (userInfo: any) => req.put<TokenResp>('/user/setting', userInfo)
+export const smsSend = (mobile:string) => req.get<SmsSendResp>(`/user/smsSend?mobile=${mobile}`)
+export const createTag = (tagInfo:any) => req.post<CreateTagResp>(`/tag/create`, tagInfo)
+export const removeTag = (tagId: number) => req.delete<TokenResp>(`/tag/remove`, tagId)
+export const getDraftPosts = () => req.get<DraftPostResp>(`/post/draft`)
+export const savePostContent = (data: any) => req.put<TokenResp>(`/post/content`, data)
+export const savePostTitle = (data: any) => req.put<TokenResp>(`/post/title`, data)
+export const saveUnloadBefore = (data: any) => req.put<TokenResp>(`/post/unloadBefore`, data)
+export const publishPost = (data: any) => req.put<TokenResp>(`/post/publish`, data)

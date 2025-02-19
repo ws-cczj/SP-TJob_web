@@ -44,6 +44,14 @@ export const errorMsg = (msgInfo: string, duration: number = 3000) => {
 }
 
 
+/**
+ * 
+ * @param msg 弹出消息
+ * @param btnName 按钮名称
+ * @param type 按钮类型
+ * @param title 标题 默认为提示
+ * @returns void
+ */
 // 带一个确定按钮或是按钮的alertBox
 export const alertBox = (msg: string, btnName: string, type: any, title?: string,) => {
   let confirmName = btnName == '确定' ? '确定' : '是'
@@ -54,10 +62,18 @@ export const alertBox = (msg: string, btnName: string, type: any, title?: string
     dangerouslyUseHTMLString: true
   });
 }
+/**
+ * 
+ * @param msg 弹出消息
+ * @param btnName 按钮名称
+ * @param type 按钮类型
+ * @param title 标题 默认为提示
+ * @param then 确定后执行函数 默认为空函数
+ * @param cancel 取消后执行函数 默认为空函数
+ * @returns void
+ */
 // 带确定取消按钮或者是否按钮的弹出提示框
-export const confirmBox = (msg: string, btnName: string, type: any, title?: string,
-  then: Function = () => { },
-  cancel: (reason: any) => void = () => { }) =>
+export const confirmBox = (msg: string, btnName: string, type?: any, title?: string) =>
 {
   let confirmName = btnName == '确定' ? '确定' : '是'
   let cancelsName = btnName == '确定' ? '取消' : '否'
@@ -69,5 +85,32 @@ export const confirmBox = (msg: string, btnName: string, type: any, title?: stri
     closeOnClickModal: false,
     closeOnPressEscape: false,
     dangerouslyUseHTMLString: true
-  }).then(() => { then() }).catch(cancel);
+  });
+}
+
+/**
+ * 
+ * @param msg 弹出消息
+ * @param btnName 按钮名称
+ * @param type 按钮类型
+ * @param title 标题 默认为提示
+ * @param then 确定后执行函数 默认为空函数
+ * @param cancel 取消后执行函数 默认为空函数
+ * @returns void
+ */
+// 带确定取消按钮或者是否按钮的弹出提示框
+export const promptBox = (msg: string, btnName: string, type?: any, title?: string,
+ ) =>
+{
+  let confirmName = btnName == '确定' ? '确定' : '是'
+  let cancelsName = btnName == '确定' ? '取消' : '否'
+  return ElMessageBox.prompt(msg, title || '提示', {
+    type: type || 'warning',
+    confirmButtonText: confirmName,
+    cancelButtonText: cancelsName,
+    buttonSize: "default",
+    closeOnClickModal: false,
+    closeOnPressEscape: false,
+    dangerouslyUseHTMLString: true
+  })
 }
