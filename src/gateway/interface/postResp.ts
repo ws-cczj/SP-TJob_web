@@ -42,3 +42,11 @@ export declare interface VisitorDetailsPostResp {
   post: PostResp
 }
 
+export declare interface CollectPostResp {
+  posts: PostResp[]
+  token: string
+}
+export declare interface PublishPostResp {
+  posts: PostResp[]
+  token: string
+}

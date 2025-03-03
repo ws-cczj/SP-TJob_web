@@ -1,15 +1,29 @@
 <script lang="ts" setup>
 import { UserResp } from "../gateway/interface/userResp";
 import type { MessageResp } from "../gateway/interface/messageResp";
+import { isExceedOneMinute } from "../utils/time";
 // message：接受消息对象，展示消息内容和头像，并且根据角色调整消息位置。
 const props = defineProps<{
   message: MessageResp;
   user: UserResp | undefined;
   position: string;
 }>();
+// showTime 展示时间
+const showTime = (type: string = 'bool'): boolean | string => {
+  const time = props.message.create_at
+  if (type === 'bool') {
+    return isExceedOneMinute(time)
+  }
+  return time!
+}
+
 </script>
 
 <template>
+  <!-- 时间分隔条 -->
+  <div v-if="showTime('bool')" class="cczj-mt-3 time-divider">
+    {{ showTime('string') }}
+  </div>
   <div :class="['message-row cczj-mt-4', props.position === 'left' ? 'left' : 'right']">
     <!-- 消息展示，分为上下，上面是头像，下面是消息 -->
     <div class="row">
@@ -27,6 +41,13 @@ const props = defineProps<{
 </template>
 
 <style lang="css" scoped>
+.time-divider {
+  font-size: 12px;
+  font-family: math;
+  font-weight: 100;
+  margin-left: 40%;
+}
+
 .message-row {
   display: flex;
 }

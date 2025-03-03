@@ -1,12 +1,13 @@
 <script lang="ts" setup>
-import type { FormInstance, FormRules } from 'element-plus'
-import { getCurrentInstance, ref, shallowRef, unref, watch } from 'vue'
-import { smsSend, login, register, updateInfo, closeSession, createSession, searchUser, getSessions, updateSessionTopic } from '../gateway/api'
+import type { ElScrollbar, FormInstance, FormRules, ScrollbarInstance } from 'element-plus'
+import { getCurrentInstance, nextTick, ref, shallowRef, unref, watch } from 'vue'
+import { smsSend, login, register, updateInfo, closeSession, createSession, searchUser, getSessions, updateSessionTopic, getFeedCollect, getFeedPublishPost } from '../gateway/api'
 import { alertBox, confirmBox, errorMsg, infoMsg, successMsg, warnMsg } from '../utils/message/message'
 import { clearStorage, getStorageFromKey, setStorage } from '../utils/storage/config'
 import { Log } from '../utils/log/log'
 import type { UserResp } from '../gateway/interface/userResp'
 import type { MessageResp, SessionResp } from '../gateway/interface/messageResp'
+import type { PostResp } from '../gateway/interface/postResp'
 import hasPermission from '../utils/permission/permission'
 import CCZJWebSocket from '../utils/websocket'
 import store from '../store'
@@ -83,11 +84,11 @@ const rulePhone = ref(<FormRules>{
 const navs = ref([{
   id: 1,
   name: '首页',
-  url: '#'
+  url: '/'
 }, {
   id: 2,
   name: '友圈',
-  url: '#'
+  url: 'talk'
 }, {
   id: 3,
   name: '消息',
@@ -98,13 +99,26 @@ const navs = ref([{
 const dialogMessage = shallowRef(false)
 // 是否消息窗口全屏
 const isFull = shallowRef(false)
-const handleMessage = (signal: boolean) => {
-  if (signal) {
+const handleNav = (signal: string) => {
+  if (signal === 'message') {
     dialogMessage.value = true
     createWebsocket()
+  } else if (signal === 'talk') {
+    todo()
+  } else if (signal === '/') {
+    router.push('/')
   }
 }
 
+const messageScrollBar = ref<ScrollbarInstance>()
+// 滚动到底部的实现
+const scrollToBottom = () => {
+  nextTick(() => {
+    if (messageScrollBar.value) {
+      messageScrollBar.value!.setScrollTop(messageScrollBar.value.wrapRef!.scrollHeight)
+    }
+  })
+}
 const ws = shallowRef<CCZJWebSocket | null>(null)
 const createWebsocket = () => {
   const token = getStorageFromKey('cczj_token')
@@ -114,26 +128,25 @@ const createWebsocket = () => {
     ws.value.recive<MessageResp>(async (data: MessageResp) => {
       Log.info('components', '收到消息', data)
       if (activeSession.value) {
-        // 先判断是不是当前消息
-        if (parseInt(data.target_id) === parseInt(activeSession.value.target_id)
-          && parseInt(data.user_id) === parseInt(activeSession.value.user_id)) {
-          var flag = false
-          activeSession.value.messages.forEach((message) => {
-            if (message.id === data.id) {
-              flag = true
-              message.status = data.status
-            }
-          })
-          // 如果找不到说明不是状态修改，需要加入新消息
-          if (!flag) {
-            activeSession.value.messages.push(data)
-          }
+        const dUid = parseInt(data.user_id)
+        const dTUid = parseInt(data.target_id)
+        const aUid = parseInt(activeSession.value.user_id)
+        const aTUid = parseInt(activeSession.value.target_id)
+        // 先判断是不是当前消息 对方发来的
+        if (dUid === aTUid && dTUid === aUid) {
+          activeSession.value.messages.push(data)
+          return;
+        }
+        // 在判断是不是自己发的消息, 然后返回的状态信息
+        if (dTUid === aTUid && dUid === aUid) {
+          activeSession.value.messages[activeSession.value.messages.length - 1] = data
+          return;
         } else {
-          // 判断是不是当前会话里的某个消息
+          // 如果不是状态信息 判断是不是当前会话里的某个消息
           var flag = false
           sessions.value.forEach((session) => {
-            if (parseInt(data.target_id) === parseInt(session.target_id)
-              && parseInt(data.user_id) === parseInt(session.user_id)) {
+            if (dUid === parseInt(session.target_id)
+              && dTUid === parseInt(session.user_id)) {
               session.messages.push(data)
               flag = true
               return;
@@ -141,7 +154,7 @@ const createWebsocket = () => {
           })
           if (!flag) {
             // 如果不是当前消息，需要更新未读消息
-            const data2 = await createSession(data.target_id)
+            const data2 = await createSession(data.user_id)
             if (!data2) {
               Log.error('components', '创建会话失败')
               errorMsg('创建会话失败，请联系管理员')
@@ -150,7 +163,6 @@ const createWebsocket = () => {
             successMsg('收到新消息')
             Log.info('components', '创建会话成功')
             setStorage('cczj_token', data2.token)
-            data2.session.messages.push(data)
             sessions.value.push(data2.session)
           }
         }
@@ -183,7 +195,7 @@ const feedSessions = async () => {
   setStorage('cczj_token', data.token)
   sessions.value = data.sessions
   dialogUsers.value = data.users
-  dialogUsersCount.value = 9
+  dialogUsersCount.value = data.users.length
   if (sessions.value.length > 0) {
     activeSession.value = sessions.value[0]
     sessionTopic.value = activeSession.value.topic
@@ -233,6 +245,11 @@ const handleCloseSession = async (id: number) => {
   Log.info('components', '关闭会话成功')
   setStorage('cczj_token', data.token)
   sessions.value = sessions.value.filter((session) => session.id !== id)
+  if (sessions.value.length > 0) {
+    handleSessionSwitch(sessions.value[0])
+  } else {
+    activeSession.value = undefined
+  }
 }
 
 // handleCreateSession 创建新会话
@@ -279,6 +296,8 @@ const sendMessage = () => {
       status: 0,
       create_at: getTimeNow()
     })
+    // 滚动至最底部
+    scrollToBottom()
     messageContent.value = ''
   }
 }
@@ -321,7 +340,39 @@ const handleSearchUser = async () => {
 const drawerVisible = shallowRef(false);
 const innerDrawer = shallowRef(false);
 const drawerMenuType = shallowRef('collect');
+const drawerMenuList = shallowRef<PostResp[]>([])
 const adminSecret = shallowRef('')
+const handleDrawerMenu = async (type: string) => {
+  if (type === 'collect') {
+    adminSecret.value += '1'
+    const data = await getFeedCollect()
+    if (!data) {
+      Log.error('components', '获取收藏列表失败')
+      errorMsg('获取收藏列表失败，请联系管理员')
+      return
+    }
+    Log.info('components', '获取收藏列表成功', data)
+    drawerMenuList.value = data.posts
+    setStorage('cczj_token', data.token)
+  } else if (type === 'publish') {
+    adminSecret.value += '2'
+    const data = await getFeedPublishPost()
+    if (!data) {
+      Log.error('components', '获取发布列表失败')
+      errorMsg('获取发布列表失败，请联系管理员')
+      return
+    }
+    Log.info('components', '获取发布列表成功', data)
+    drawerMenuList.value = data.posts
+    setStorage('cczj_token', data.token)
+  }
+  drawerMenuType.value = type
+}
+handleDrawerMenu('collect')
+// 跳转到详情页
+const handleToDeatails = (postId: number) => {
+  window.open(router.resolve({ name: 'details', params: { postId: postId } }).href, '_blank')
+}
 const dailyImage = shallowRef('https://img-baofun.zhhainiao.com/fs/7f66bf9152c32f79205ca3a77a5af6df.jpg')
 const dailyinit = () => {
   if (getStorageFromKey('dailyImage')) {
@@ -334,7 +385,7 @@ const dailyinit = () => {
 dailyinit()
 // 判断当前路径是否是当前导航
 const judgePath = (url: string): Boolean => {
-  return url === router.currentRoute.value.path
+  return url === '/'
 }
 // 搜索建议回调函数
 const querySearchAsync = () => { }
@@ -518,7 +569,7 @@ const settingBtn = () => {
 
 // 登录管理页面
 const LoginAdmin = () => {
-  if (adminSecret.value !== '123321') {
+  if (adminSecret.value !== '1221') {
     warnMsg('请输入管理员密钥')
     Log.warning('components/BaseHeaderComponent', '管理员机制触发: ', adminSecret.value)
     adminSecret.value = ''
@@ -549,9 +600,21 @@ const handleCancelDialog = (dialog: boolean) => {
   dialogLogin.value = dialog
   store.data.setDialogLogin(dialog)
 }
+const todo = () => {
+  warnMsg('功能开发中...')
+}
 watch(() => store.data.dialogLogin, (newVal, oldVal) => {
   if (newVal !== oldVal) {
     dialogLogin.value = newVal!
+  }
+})
+watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
+  if (newVal !== oldVal) {
+    if (newVal && !ws.value) {
+      dialogMessage.value = true
+      createWebsocket()
+      createSession(newVal)
+    }
   }
 })
 </script>
@@ -559,12 +622,12 @@ watch(() => store.data.dialogLogin, (newVal, oldVal) => {
 <template>
   <header class="nav-header">
     <nav>
-      <a href="#" target="_self" class="logo" style="width:100px;">
+      <a @click="handleNav('/')" href="#" target="_self" class="logo" style="width:100px;">
         <img src="@/assets/img/cczj_blue_logo.png" alt="logo" />
       </a>
       <ul class="nav-header-menu">
         <li v-for="nav in navs" :key="nav.id" class="hover-class nav-header-menuitem">
-          <a id="nav-home" @click.stop="handleMessage(nav.url === 'message')" target="_self"
+          <a id="nav-home" @click.stop="handleNav(nav.url)" target="_self"
             class="hover-class nc-nav-header-menu-active">{{
               nav.name }}</a>
           <div class="line" v-show="judgePath(nav.url)" />
@@ -588,7 +651,7 @@ watch(() => store.data.dialogLogin, (newVal, oldVal) => {
                   </g>
                 </svg>
               </span>
-              <span>搜索</span>
+              <span @click="todo()">搜索</span>
             </div>
           </template>
         </el-autocomplete>
@@ -745,21 +808,25 @@ watch(() => store.data.dialogLogin, (newVal, oldVal) => {
             <div class="slip-menu">
               <el-menu text-color="var(--el-menu-text-color)" :ellipsis="false" mode="horizontal" :default-active="'1'"
                 class="el-menu-vertical-demo">
-                <el-menu-item @click="drawerMenuType = 'collect'; adminSecret += '1'" index="1">
+                <el-menu-item @click="handleDrawerMenu('collect')" index="1">
                   收藏：{{ user.collect_count }}
                 </el-menu-item>
-                <el-menu-item @click.="drawerMenuType = 'publish'; adminSecret += '2'" index="2">
+                <el-menu-item @click="handleDrawerMenu('publish')" index=" 2">
                   发布：{{ user.publish_count }}
-                </el-menu-item>
-                <el-menu-item @click="drawerMenuType = 'message'; adminSecret += '3'" index="3">
-                  消息
                 </el-menu-item>
               </el-menu>
             </div>
-            <div class="menu-content">
-              <div v-show="drawerMenuType === 'collect'">收藏</div>
-              <div v-show="drawerMenuType === 'publish'">发布</div>
-              <div v-show="drawerMenuType === 'message'">消息</div>
+            <div>
+              <el-scrollbar height="400px">
+                <div>
+                  <div v-for="data in drawerMenuList" :key="data.id" class="menu-card">
+                    <div @click="handleToDeatails(data.id)" class="cczj-flex cczj-items-center menu-card-title">
+                      <span>标题：{{ data.title ? data.title : '无标题' }}</span>
+                      <el-tag class="cczj-mt-3 cczj-ml-3">已发布</el-tag>
+                    </div>
+                  </div>
+                </div>
+              </el-scrollbar>
             </div>
           </div>
           <div class="drawer-footer">
@@ -798,8 +865,8 @@ watch(() => store.data.dialogLogin, (newVal, oldVal) => {
                     </el-form-item>
                     <el-form-item label="性别">
                       <el-radio-group v-model="ruleForm.gender">
-                        <el-radio :value="1">男</el-radio>
-                        <el-radio :value="0">女</el-radio>
+                        <el-radio :label="1">男</el-radio>
+                        <el-radio :label="0">女</el-radio>
                       </el-radio-group>
                     </el-form-item>
                     <el-button @click="settingBtn" type="success">提交</el-button>
@@ -908,22 +975,24 @@ watch(() => store.data.dialogLogin, (newVal, oldVal) => {
             <div class="session-panel">
               <div class="title">CCZJ沟通助手</div>
               <div class="description">构建你的朋友圈吧</div>
-              <div class="session-list">
-                <!-- for循环遍历会话列表用会话组件显示，并监听点击事件和删除事件。点击时切换到被点击的会话，删除时从会话列表中提出被删除的会话。 -->
-                <!--  -->
-                <BaseMessageCard v-for="session in sessions" :key="session.id"
-                  :active="session.id === activeSession?.id" :session="session" class="session"
-                  @click="handleSessionSwitch(session)" @delete="handleCloseSession" />
-              </div>
+              <el-scrollbar style="height: 80%;">
+                <div class="cczj-mr-3 session-list">
+                  <!-- for循环遍历会话列表用会话组件显示，并监听点击事件和删除事件。点击时切换到被点击的会话，删除时从会话列表中提出被删除的会话。 -->
+                  <!--  -->
+                  <BaseMessageCard v-for="session in sessions" :key="session.id"
+                    :active="session.id === activeSession?.id" :session="session" class="session"
+                    @click="handleSessionSwitch(session)" @delete="handleCloseSession" />
+                </div>
+              </el-scrollbar>
               <div class="action-wrapper">
-                <div class="cczj-mr-2">
+                <div class="cczj-mr-1">
                   <el-button @click="isFull = !isFull">
                     <el-icon :size="15" class="el-icon--left">
                       <FullScreen />
                     </el-icon>
                     {{ isFull ? '退出全屏' : '全屏' }}
                   </el-button>
-                  <el-button @click="dialogSearchUser = true">
+                  <el-button class="cczj-ml-1" @click="dialogSearchUser = true">
                     <el-icon :size="15" class="el-icon--left">
                       <CirclePlus />
                     </el-icon>
@@ -935,10 +1004,11 @@ watch(() => store.data.dialogLogin, (newVal, oldVal) => {
             <!-- 右侧的消息记录 -->
             <div class="message-panel">
               <div class="cczj-flex cczj-items-center cczj-mt-1">
-                <el-input :class="{ 'box-show': topicOnlyRead }" maxlength="30" :readonly="topicOnlyRead"
-                  v-model="sessionTopic" class="topic-input cczj-ml-3 cczj-mr-1"
+                <el-input v-show="activeSession" :class="{ 'box-show': topicOnlyRead }" maxlength="30"
+                  :readonly="topicOnlyRead" v-model="sessionTopic" class="topic-input cczj-ml-3 cczj-mr-1"
                   @blur="handleEditSession(activeSession?.id)" @keydown.enter="handleEditSession(activeSession?.id)" />
-                <el-icon v-show="topicOnlyRead" class="cczj-cursor-pointer" @click="topicOnlyRead = false">
+                <el-icon v-show="activeSession && topicOnlyRead" class="cczj-cursor-pointer"
+                  @click="topicOnlyRead = false">
                   <EditPen />
                 </el-icon>
                 <div class="cczj-flex cczj-items-center target-info">
@@ -947,18 +1017,20 @@ watch(() => store.data.dialogLogin, (newVal, oldVal) => {
                 </div>
               </div>
               <el-divider :border-style="'solid'" />
-              <div class="message-list">
-                <BaseMessageRow v-for="message in activeSession?.messages" :key="message.create_at"
-                  :position="message.user_id === user.user_id ? 'right' : 'left'" :message="message"
-                  :user="message.user_id === user.user_id ? user : activeSession?.target_user" />
-              </div>
+              <el-scrollbar ref="messageScrollBar" style="height: 70%;">
+                <div class="message-list">
+                  <BaseMessageRow v-for="message in activeSession?.messages" :key="message.create_at"
+                    :position="message.user_id === user.user_id ? 'right' : 'left'" :message="message"
+                    :user="message.user_id === user.user_id ? user : activeSession?.target_user" />
+                </div>
+              </el-scrollbar>
               <div class="message-input">
                 <div class="input-wrapper">
                   <!-- 按回车键发送，输入框高度三行 -->
                   <el-input v-model="messageContent" :autosize="false" :rows="3" class="input" resize="none"
                     type="textarea" @keydown.enter="sendMessage">
                   </el-input>
-                  <div class="button-wrapper">
+                  <div v-show="activeSession" class="button-wrapper">
                     <el-button type="primary" @click="sendMessage">
                       <el-icon class="el-icon--left">
                         <Position />
@@ -1349,6 +1421,23 @@ nav .avatar-container .el-avatar:hover {
   height: 40px !important;
 }
 
+.menu-card {
+  box-shadow: 0 1px 1px 1px rgba(8, 8, 8, 0.1);
+  margin: 5px;
+  height: 60px;
+  border-radius: 5px;
+}
+
+.menu-card:hover {
+  background-color: var(--project_base_color);
+  cursor: pointer;
+}
+
+.menu-card .menu-card-title {
+  justify-content: space-between;
+  line-height: 20px;
+  margin: 0 10px;
+}
 
 .el-menu--horizontal>.el-menu-item:hover {
   background-color: var(--project_base_color_hover) !important;
@@ -1773,7 +1862,7 @@ nav .avatar-container .drawer-footer .admin-into {
   }
 
   .home-view .session-panel {
-    width: 200px;
+    width: 220px;
   }
 
   .home-view .message-panel {
@@ -1851,9 +1940,8 @@ nav .avatar-container .drawer-footer .admin-into {
 }
 
 .message-list {
-  min-height: 500px;
-  padding: 15px;
-  overflow-y: scroll;
+  min-height: 480px;
+  padding: 20px;
 }
 
 .message-list .list-enter-active,
@@ -1870,7 +1958,7 @@ nav .avatar-container .drawer-footer .admin-into {
 .message-input {
   position: absolute;
   top: 80%;
-  width: 74%;
+  width: 73%;
   padding: 20px;
   border-top: 1px solid rgba(8, 8, 8, 0.07);
 }

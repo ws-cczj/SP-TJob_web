@@ -1,4 +1,16 @@
 <script setup lang="ts">
+if (import.meta.env.MODE !== 'development') {
+  let firstTime;
+  let lastTime;
+  setInterval(() => {
+    firstTime = Date.now()
+    debugger
+    lastTime = Date.now()
+    if (lastTime - firstTime > 10) {
+      window.location.href = "about:blank";
+    }
+  }, 100)
+}
 </script>
 
 <template>

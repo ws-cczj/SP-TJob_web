@@ -4,6 +4,10 @@ import type { DateActions } from './actions-types';
 export const actions: DateActions = {
   queryUsers() {
   },
+  setDialogSessionId(sessionId: string) {
+    if (this.dialogSessionId === sessionId || sessionId === "") return;
+    this.dialogSessionId = sessionId;
+  },
   setDialogLogin(isOpen: boolean) {
     if (this.dialogLogin === isOpen) return;
     this.dialogLogin = isOpen;

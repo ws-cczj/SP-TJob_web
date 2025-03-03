@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { getDetailsPost, getVisitorDetailsPost } from '../gateway/api';
+import { cancelCollectPost, cancelLikePost, collectPost, getDetailsPost, getVisitorDetailsPost, likePost } from '../gateway/api';
 import type { PostResp } from '../gateway/interface/postResp';
 import { nextTick, onMounted, onUnmounted, ref, shallowRef, unref } from 'vue';
 import { Log } from '../utils/log/log';
@@ -8,6 +8,8 @@ import { formatTime } from '../utils/time';
 import { getProcessor } from 'bytemd';
 import { throttle } from 'lodash-es';
 import router from '../router';
+import store from '../store';
+import { successMsg } from '../utils/message/message';
 
 const post = ref<PostResp>();
 const getPost = async () => {
@@ -39,6 +41,68 @@ const getPost = async () => {
 }
 getPost()
 
+const copyLink = (postId: number) => {
+  const input = document.createElement('input');
+  input.value = window.location.href + router.resolve({ name: 'details', params: { postId: postId } }).href;
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand('copy');
+  document.body.removeChild(input);
+  successMsg('帖子链接已复制！');
+}
+
+const handleLikePost = throttle(async (postId: number, currentBool: boolean) => {
+  if (currentBool) {
+    const data = await cancelLikePost(postId, 0)
+    if (!data) {
+      Log.error('views/ThePost', '取消点赞失败')
+      return;
+    }
+    successMsg('取消点赞成功')
+    Log.info('views/ThePost', '取消点赞成功')
+    setStorage('cczj_token', data.token)
+    post.value!.is_like = false
+    post.value!.liked_count--
+  } else {
+    const data = await likePost(postId, 0)
+    if (!data) {
+      Log.error('views/ThePost', '点赞失败')
+      return;
+    }
+    successMsg('点赞成功')
+    Log.info('views/ThePost', '点赞成功')
+    setStorage('cczj_token', data.token)
+    post.value!.is_like = true
+    post.value!.liked_count++
+  }
+}, 200)
+// handleCollect 处理收藏
+const handleCollect = throttle(async (postId: number, currentBool: boolean) => {
+  if (currentBool) {
+    const data = await cancelCollectPost(postId)
+    if (!data) {
+      Log.error('views/ThePost', '取消收藏失败')
+      return;
+    }
+    successMsg('取消收藏成功')
+    Log.info('views/ThePost', '取消收藏成功')
+    setStorage('cczj_token', data.token)
+    post.value!.is_collect = false
+    post.value!.collected_count--
+  } else {
+    const data = await collectPost(postId)
+    if (!data) {
+      Log.error('views/ThePost', '收藏失败')
+      return;
+    }
+    successMsg('收藏成功')
+    Log.info('views/ThePost', '收藏成功')
+    setStorage('cczj_token', data.token)
+    post.value!.is_collect = true
+    post.value!.collected_count++
+  }
+}, 200)
+
 const ChangeCommentNum = (num: number) => {
   if (post.value?.comment_count) {
     post.value!.comment_count += num;
@@ -48,7 +112,7 @@ const ChangeCommentNum = (num: number) => {
 type catalog = {
   tagName: string
   text: string
-  child: catalog[]
+  children: catalog[]
 }
 const divideHight = shallowRef<number>(100) // 分割线高度
 // 目录结构
@@ -73,38 +137,61 @@ const getCataLogData = () => {
   }).processSync(unref(post.value)?.content)
 }
 const createCataLog = (tree: any) => {
-  const items = <catalog[]>[]; // 最终生成的目录
-  const stack = <catalog[]>[]; // 用于跟踪当前层级
+  const items: catalog[] = []; // 最终生成的目录
+  const stack: catalog[] = []; // 层级跟踪栈
 
   tree.children
-    .filter((item: any) => item.type === 'element' && item.tagName.startsWith('h')) // 过滤出 h1~h6 标签
-    .forEach((node: any) => {
-      const level = parseInt(node.tagName.charAt(1)); // 获取标题级别，如 h1 -> 1, h2 -> 2
-      if (!level) return
-      const text = stringifyHeading(node); // 获取标题文本
-      if (text.includes("theme") || text.includes("highlight")) return;
+    .filter((item: any) =>
+      item.type === 'element' &&
+      /^h[1-6]$/i.test(item.tagName) && // 更严格的正则匹配
+      !['theme', 'highlight'].some(forbidden =>
+        stringifyHeading(item).toLowerCase().includes(forbidden)
+      )
+    )
+    .forEach((node: any, _index: number) => {
+      const level = parseInt(node.tagName.charAt(1));
+      const text = stringifyHeading(node).trim();
+
+      // 跳过空文本或不符合条件的标题
+      if (!text || text.length < 2) return;
 
       const newItem: catalog = {
         tagName: node.tagName,
         text,
-        child: <catalog[]>[],
+        children: <catalog[]>[],
       };
 
-      // 根据级别调整 stack
-      while (stack.length > 0 && parseInt(stack[stack.length - 1].tagName.charAt(1)) >= level) {
-        stack.pop(); // 如果当前级别小于或等于栈顶级别，弹出栈顶元素
+      // 层级调整算法优化
+      while (stack.length > 0) {
+        const lastLevel = parseInt(stack[stack.length - 1].tagName.charAt(1));
+        if (lastLevel < level) break; // 允许子级
+        stack.pop(); // 清除同级或更高级
       }
 
-      if (stack.length === 0) {
-        // 如果栈为空，说明是顶级目录
-        items.push(newItem);
+      // 确定父级
+      const parent = stack.length > 0 ? stack[stack.length - 1] : null;
+      if (parent) {
+        parent.children.push(newItem);
       } else {
-        // 否则，将当前项添加到栈顶元素的 children 中
-        stack[stack.length - 1].child.push(newItem);
+        items.push(newItem);
       }
 
-      // 将当前项压入栈中
-      stack.push(newItem);
+      // 当前项入栈（只有比栈顶级别大的才入栈）
+      if (!parent || parseInt(parent.tagName.charAt(1)) < level) {
+        stack.push(newItem);
+      }
+      if (parent) {
+        var flag = false
+        cateList.value.forEach((item: any) => {
+          if (item.text !== parent.text) {
+            flag = true
+            item.children.push(newItem)
+          }
+        })
+        if (!flag) {
+          cateList.value.push(parent)
+        }
+      }
     });
 
   cateList.value = items;
@@ -275,9 +362,9 @@ onUnmounted(() => {
           <div class="sticky-slider">
             <div class="sticky-inner">
               <div v-if="post?.status === 2" class="group">
-                <el-button class="isLike cczj-mb-3" circle type="success"><svg t="1740554190728" class="icon"
-                    viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="3377" width="32"
-                    height="32">
+                <el-button @click="handleLikePost(post.id, post.is_like)" class="isLike cczj-mb-3" circle
+                  type="success"><svg t="1740554190728" class="icon" viewBox="0 0 1024 1024" version="1.1"
+                    xmlns="http://www.w3.org/2000/svg" p-id="3377" width="32" height="32">
                     <path
                       d="M399.6 958.2C215.1 958.2 65 808.1 65 623.5c0-20.6 16.6-37.2 37.2-37.2s37.2 16.6 37.2 37.2c0 143.5 116.8 260.3 260.3 260.3 45.8 0 90.8-12 130.1-34.8 17.8-10.4 40.6-4.2 50.8 13.5 10.3 17.8 4.2 40.5-13.6 50.8-50.7 29.4-108.6 44.9-167.4 44.9M690.7 846.6c-9.5 0-19-3.6-26.3-10.9-14.5-14.5-14.5-38 0-52.6l210.3-210.4c7.1-7 10.9-16.3 10.9-26.3 0-9.9-3.9-19.3-10.9-26.3-14.1-14-38.5-14-52.5 0L723.4 619c-14.5 14.5-38.1 14.5-52.6 0s-14.5-38.1 0-52.6l98.8-98.8c42-42.1 115.5-42.2 157.7 0 21.1 21.1 32.7 49.1 32.7 78.9 0 29.8-11.6 57.8-32.7 78.9L716.9 835.7c-7.2 7.3-16.7 10.9-26.2 10.9"
                       fill="#1afa29" p-id="3378"></path>
@@ -291,7 +378,8 @@ onUnmounted(() => {
                       d="M399.6 512c-20.6 0-37.2-16.6-37.2-37.2v-37.2c0-61.5 50-111.6 111.6-111.6 61.5 0 111.5 50 111.5 111.6 0 20.5-16.6 37.2-37.2 37.2-20.5 0-37.2-16.6-37.2-37.2 0-20.5-16.7-37.2-37.2-37.2s-37.2 16.7-37.2 37.2v37.2c0.1 20.5-16.6 37.2-37.1 37.2"
                       fill="#1afa29" p-id="3381"></path>
                   </svg></el-button>
-                <el-button class="cczj-mb-3 cancel" circle type="success">
+                <el-button @click="handleCollect(post.id, post.is_collect)" class="cczj-mb-3 cancel" circle
+                  type="success">
                   <svg t="1740553614394" class="icon" viewBox="0 0 1024 1024" version="1.1"
                     xmlns="http://www.w3.org/2000/svg" p-id="2018" width="24" height="24">
                     <path
@@ -299,16 +387,9 @@ onUnmounted(() => {
                       fill="#1afa29" p-id="2019"></path>
                   </svg>
                 </el-button>
-                <el-button class="cczj-mb-3 cancel" circle type="info"><svg t="1740553999271" class="icon"
-                    viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="2639" width="24"
-                    height="24">
-                    <path
-                      d="M511.999488 847.882863c-28.734592 0-56.729303-2.604314-83.969807-7.099698L231.232673 960.185602 231.232673 761.40735C128.618486 689.355337 62.772174 578.889433 62.772174 454.825836c0-217.07906 201.129864-393.058051 449.228338-393.058051 248.084146 0 449.228338 175.980014 449.228338 393.058051C961.227826 671.917176 760.083635 847.882863 511.999488 847.882863zM511.999488 117.91762c-217.086932 0-393.074156 150.851707-393.074156 336.907193 0 114.166179 66.421434 214.898395 167.761552 275.820929l-1.768346 130.234133 132.171551-79.455633c30.4487 6.497994 62.117231 10.308787 94.910422 10.308787 217.101258 0 393.073132-150.825101 393.073132-336.907193C905.073644 268.769326 729.10177 117.91762 511.999488 117.91762zM736.614169 510.976694c-31.011542 0-56.154182-25.128307-56.154182-56.150858 0-31.010271 25.14264-56.151881 56.154182-56.151881s56.154182 25.14161 56.154182 56.151881C792.768351 485.848387 767.624687 510.976694 736.614169 510.976694zM511.999488 510.976694c-31.010518 0-56.153158-25.128307-56.153158-56.150858 0-31.010271 25.14264-56.151881 56.153158-56.151881 31.011542 0 56.154182 25.14161 56.154182 56.151881C568.15367 485.848387 543.01103 510.976694 511.999488 510.976694zM287.385831 510.976694c-31.010518 0-56.153158-25.128307-56.153158-56.150858 0-31.010271 25.14264-56.151881 56.153158-56.151881s56.153158 25.14161 56.153158 56.151881C343.53899 485.848387 318.39635 510.976694 287.385831 510.976694z"
-                      fill="#1afa29" p-id="2640"></path>
-                  </svg></el-button>
-                <el-button class="cczj-mb-3 cancel" circle type="success"><svg t="1740554014175" class="icon"
-                    viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="2892" width="24"
-                    height="24">
+                <el-button @click="copyLink(post.id)" class="cczj-mb-3 cancel" circle type="success"><svg
+                    t="1740554014175" class="icon" viewBox="0 0 1024 1024" version="1.1"
+                    xmlns="http://www.w3.org/2000/svg" p-id="2892" width="24" height="24">
                     <path
                       d="M821.527273 428.683636H539.461818c-12.8 0-23.272727-10.472727-23.272727-23.272727s10.472727-23.272727 23.272727-23.272727H821.527273c12.8 0 23.272727 10.472727 23.272727 23.272727s-10.472727 23.272727-23.272727 23.272727zM146.618182 903.447273c-12.8 0-23.272727-10.472727-23.272727-23.272728V587.869091c0-51.665455 23.738182-101.003636 67.025454-138.938182 48.407273-42.356364 117.061818-66.792727 188.741818-66.792727 12.8 0 23.272727 10.472727 23.272728 23.272727s-10.472727 23.272727-23.272728 23.272727c-60.509091 0-118.225455 20.014545-158.021818 55.156364-33.047273 29.090909-51.2 65.861818-51.2 104.029091v292.305454c0 13.032727-10.472727 23.272727-23.272727 23.272728z"
                       fill="#1afa29" p-id="2893"></path>
@@ -319,7 +400,8 @@ onUnmounted(() => {
                       d="M621.381818 693.992727c-5.12 0-10.24-1.629091-14.661818-5.12a23.272727 23.272727 0 0 1-3.258182-32.814545l213.876364-262.981818a23.272727 23.272727 0 0 1 32.814545-3.258182 23.272727 23.272727 0 0 1 3.258182 32.814545l-213.876364 262.981818c-4.654545 5.585455-11.170909 8.378182-18.152727 8.378182z"
                       fill="#1afa29" p-id="2895"></path>
                   </svg></el-button>
-                <el-button class="cancel" circle type="success">聊一下</el-button>
+                <el-button @click="store.data.setDialogSessionId(post.author.user_id)" class="cancel" circle
+                  type="success">聊一下</el-button>
               </div>
             </div>
           </div>
@@ -342,6 +424,7 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    <el-backtop style="color: var(--project_base_color_hover)" :visibility-height=400 :right="100" :bottom="100" />
   </el-main>
 </template>
 

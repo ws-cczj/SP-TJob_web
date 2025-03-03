@@ -5,7 +5,7 @@ import { errorMsg } from '../utils/message/message.ts';
 import type { ApiResponse, TokenResp } from './interface/resp.ts';
 import type { CreateTagResp } from './interface/tagResp.ts';
 import type { LoginResp, RegisterResp, SearchUserResp, SmsSendResp } from './interface/userResp.ts';
-import type { DetailsPostResp, DraftPostResp, FeedPostResp, VisitorDetailsPostResp, VisitorPostResp } from './interface/postResp.ts';
+import type { CollectPostResp, DetailsPostResp, DraftPostResp, FeedPostResp, PublishPostResp, VisitorDetailsPostResp, VisitorPostResp } from './interface/postResp.ts';
 import { CreateCommentResp } from './interface/commentResp.ts';
 import { CreateSessionResp, FeedSeesionResp } from './interface/messageResp.ts';
 import { clearStorage, getStorageFromKey, setStorage } from '@/utils/storage/config.ts';
@@ -194,6 +194,8 @@ export const cancelLikePost = (targetId:number, targetType:number) => req.put<To
 export const collectPost = (targetId:number) => req.post<TokenResp>(`/collect/collect/${targetId}`)
 export const cancelCollectPost = (targetId:number) => req.put<TokenResp>(`/collect/cancel/${targetId}`)
 export const createComment = (data: any) => req.post<CreateCommentResp>(`/comment/create`, data)
+export const getFeedCollect = () => req.get<CollectPostResp>(`/collect/feed`)
+export const getFeedPublishPost = () => req.get<PublishPostResp>(`/post/publish/feed`)
 
 // websocket
 export const getSessions = () => req.get<FeedSeesionResp>(`/ws/session/feed`)

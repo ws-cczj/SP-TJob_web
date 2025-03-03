@@ -89,18 +89,18 @@ const handleDeleteSession = async () => {
 }
 
 /* 当处于激活状态时增加蓝色描边 */
-.session-item .active {
+.active {
   /* 增加一些过渡 */
   transition: all 0.12s linear;
   border: 2px solid #1d93ab;
 }
 
-.session-item.mask {
+.session-item .mask {
   /* 渐变样式 */
   transition: all 0.2s ease-out;
   /* 相当于父亲绝对布局 */
   position: absolute;
-  background-color: rgba(black, 0.05);
+  background-color: rgba(8, 8, 8, 0.05);
   /* 和父亲元素一样宽盖住父元素 */
   width: 100%;
   /* 和父亲元素一样高 */

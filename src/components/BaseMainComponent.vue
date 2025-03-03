@@ -21,6 +21,7 @@ const refDivSticky = ref<HTMLDivElement>();
 const updateStickyBgColor = ref(() => { });
 // 帖子数据
 const posts = ref<PostResp[]>([])
+const originPosts = shallowRef<PostResp[]>([])
 // 帖子页数默认0
 const pageCount = shallowRef<number>(0)
 // 帖子id集合
@@ -39,7 +40,8 @@ const getPosts = async () => {
     Log.info('views/ThePost', '获取帖子成功', data)
     if (data.posts.length > 0) {
       data.posts.forEach((post: PostResp, index: number) => {
-        posts.value.push(post)
+        originPosts.value.push(post)
+        posts.value = originPosts.value
         if (index === data.posts.length - 1) {
           postIds.value += post.id
         } else {
@@ -58,7 +60,8 @@ const getPosts = async () => {
     setStorage('cczj_token', data.token)
     if (data.posts.length > 0) {
       data.posts.forEach((post: PostResp, index: number) => {
-        posts.value.push(post)
+        originPosts.value.push(post)
+        posts.value = originPosts.value
         if (index === data.posts.length - 1) {
           postIds.value += post.id
         } else {
@@ -72,6 +75,25 @@ const getPosts = async () => {
   isLoading.value = false;
 }
 getPosts();
+// 过滤帖子
+const active = shallowRef<number>(2)
+const handleFilterPost = (type: string = 'all') => {
+  if (type === 'all') {
+    posts.value = originPosts.value
+    active.value = 2
+    return
+  } else if (type === 'company') {
+    posts.value = originPosts.value.filter((post) => {
+      return post.author.role.role_id === 22
+    })
+    active.value = 1
+  } else if (type === 'personal') {
+    posts.value = originPosts.value.filter((post) => {
+      return post.author.role.role_id < 22
+    })
+    active.value = 0
+  }
+}
 // 跳转到详情页
 const handleToDeatails = (postId: number) => {
   window.open(router.resolve({ name: 'details', params: { postId: postId } }).href, '_blank')
@@ -107,6 +129,15 @@ const extractDescription = (content: string) => {
     .replace(/[\r\n]/g, ',')
     .trim();
   return realContent.length > 100 ? realContent.slice(0, 100) : realContent
+}
+const copyLink = (postId: number) => {
+  const input = document.createElement('input');
+  input.value = window.location.href + router.resolve({ name: 'details', params: { postId: postId } }).href;
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand('copy');
+  document.body.removeChild(input);
+  successMsg('帖子链接已复制！');
 }
 const handleLikePost = throttle(async (postId: number, currentBool: boolean) => {
   if (currentBool) {
@@ -212,6 +243,10 @@ const handleBan = (targetId: string) => {
 
 // 推/限流帖子
 const handleHot = (_val: number) => {
+  todo()
+}
+const todo = () => {
+  warnMsg('功能开发中...')
 }
 // 监听用户浏览到第几个帖子了
 const refListenPost = ref<HTMLDivElement[]>();
@@ -290,9 +325,13 @@ watch(() => store.data.isDark, (newVal) => {
               <div ref="refDivSticky" class="cczj-sticky cczj-mt--4 cczj-pt-4">
                 <div class="cczj-header">
                   <div class="tab-bar cczj-p-5">
-                    <span tabindex="-1" class="cczj-cursor-pointer cczj-mr-48">个人</span>
-                    <span tabindex="-1" class="cczj-cursor-pointer cczj-mr-48">企业</span>
-                    <span tabindex="-1" class="cczj-cursor-pointer">加精</span>
+                    <span tabindex="-1" :class="{ 'is-active': active === 0 }" @click="handleFilterPost('personal')"
+                      class="cczj-cursor-pointer cczj-mr-48">个人</span>
+                    <span tabindex="-1" :class="{ 'is-active': active === 1 }" @click="handleFilterPost('company')"
+                      class="cczj-cursor-pointer cczj-mr-48">企业</span>
+                    <span tabindex="-1" :class="{ 'is-active': active === 2 }" @click="handleFilterPost('all')"
+                      class="cczj-cursor-pointer cczj-mr-48">全部</span>
+                    <!-- <span tabindex="-1" class="cczj-cursor-pointer">加精</span> -->
                   </div>
                 </div>
               </div>
@@ -402,7 +441,7 @@ watch(() => store.data.isDark, (newVal) => {
                           </svg>
                           {{ post.collected_count }}
                         </span>
-                        <span>
+                        <!-- <span>
                           <svg t="1738928260432" class="icon" viewBox="0 -200 1024 1024" version="1.1"
                             xmlns="http://www.w3.org/2000/svg" p-id="2684" width="20" height="20">
                             <path
@@ -411,8 +450,8 @@ watch(() => store.data.isDark, (newVal) => {
                             </path>
                           </svg>
                           {{ post.comment_count }}
-                        </span>
-                        <span>
+                        </span> -->
+                        <span @click="copyLink(post.id)">
                           <svg t="1738928486832" class="icon" viewBox="0 -200 1024 1024" version="1.1"
                             xmlns="http://www.w3.org/2000/svg" p-id="2845" width="20" height="20">
                             <path
@@ -583,6 +622,11 @@ watch(() => store.data.isDark, (newVal) => {
   border-top-right-radius: 12px;
   align-items: center;
   width: 100%;
+}
+
+.is-active {
+  color: var(--project_base_color_hover);
+  font-weight: 400;
 }
 
 .page-container .flex-right {

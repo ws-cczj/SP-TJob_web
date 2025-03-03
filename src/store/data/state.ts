@@ -4,6 +4,7 @@ import { UserResp } from "@/gateway/interface/userResp";
 export interface DataState {
   drawerWidth?: number;
   dialogLogin?: boolean;
+  dialogSessionId?: string;
   isDark?: boolean;
   markdownContent?: string;
   user?: UserResp;
@@ -13,6 +14,7 @@ export const state: DataState = {
   drawerWidth: 400,
   isDark: false,
   dialogLogin: false,
+  dialogSessionId: "",
   markdownContent: "",
   user: {
     id: -1,

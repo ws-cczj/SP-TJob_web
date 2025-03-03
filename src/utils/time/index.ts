@@ -41,3 +41,22 @@ export const formatTimeNoDetail = (time: string | undefined): string => {
     const date = new Date(time)
     return `${date.getFullYear()}-${padZero(date.getMonth()+1)}-${padZero(date.getDate())}`
 }
+
+// 判断当前时间是否超过两分钟
+export const isExceedOneMinute = (timeStr: string|undefined): boolean => {
+  if (typeof timeStr === 'undefined') return false;
+    try {
+        // 转换字符串为Date对象（兼容格式）
+        const inputDate = new Date(timeStr.replace(/-/g,  '/'));
+        const currentDate = new Date();
+        
+        // 计算时间差（毫秒）
+        const diff = currentDate.getTime()  - inputDate.getTime(); 
+        
+        // 判断是否超过2分钟 
+        return diff > 120000;
+    } catch (e) {
+        console.error("Invalid  date format:", e);
+        return false;
+    }
+}
