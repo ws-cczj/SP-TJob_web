@@ -1,4 +1,4 @@
-export interface UserResp {
+export declare interface UserResp {
   id: number
   gender: number
   collect_count?: number
@@ -14,16 +14,22 @@ export interface UserResp {
   signature?: string
 }
 
-export interface LoginResp {
+export declare interface LoginResp {
   token: string
   user: UserResp
 }
 
-export interface RegisterResp {
+export declare interface RegisterResp {
   token: string
   user: UserResp
 }
 
-export interface SmsSendResp {
+export declare interface SmsSendResp {
   code: string
+}
+
+export declare interface SearchUserResp {
+  users: UserResp[]
+  count: number
+  token: string
 }

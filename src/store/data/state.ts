@@ -3,6 +3,7 @@ import { UserResp } from "@/gateway/interface/userResp";
 // state 定义
 export interface DataState {
   drawerWidth?: number;
+  dialogLogin?: boolean;
   isDark?: boolean;
   markdownContent?: string;
   user?: UserResp;
@@ -11,11 +12,12 @@ export interface DataState {
 export const state: DataState = {
   drawerWidth: 400,
   isDark: false,
+  dialogLogin: false,
   markdownContent: "",
   user: {
     id: -1,
     gender: 0,
-    score: 0,
+    bean: '0',
     user_id: "",
     nickname: "",
     avatar: "",

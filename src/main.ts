@@ -8,7 +8,6 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import { elDrawerDrag } from './directive/element-ui/el-drawer-drag';
 import { createPinia } from 'pinia'
-import store from './store'
 import { registerStore } from './store';
 import router from './router/index'
 
@@ -31,5 +30,4 @@ registerStore();
 
 // 添加全局变量
 app.config.globalProperties.$router = router
-app.config.globalProperties.$store = store.data
 app.mount('#app')

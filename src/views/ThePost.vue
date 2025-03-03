@@ -1,15 +1,15 @@
 <script lang="ts" setup>
-import { onMounted, onUnmounted, reactive, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, shallowRef } from 'vue'
 import type { UploadProps, UploadUserFile, UploadRequestOptions } from 'element-plus'
 import type { TagResp } from '../gateway/interface/tagResp'
-import { confirmBox } from '../utils/message/message'
+import type { UserResp } from '../gateway/interface/userResp'
+import { confirmBox, successMsg } from '../utils/message/message'
 import { Log } from '../utils/log/log'
 import { getStorageFromKey, setStorage } from '../utils/storage/config'
-import type { UserResp } from '../gateway/interface/userResp'
 import { getDraftPosts, publishPost, saveUnloadBefore } from '../gateway/api'
 import router from '../router'
 
-const user = ref(getStorageFromKey('cczj_user') as UserResp)
+const user = shallowRef(getStorageFromKey('cczj_user') as UserResp)
 // 帖子整体数据
 const post = reactive({
   id: <number>0,
@@ -21,14 +21,14 @@ const post = reactive({
     url: 'https://fuss10.elemecdn.com/3/63/4e7f3a15429bfda99bce42a18cdd1jpeg.jpeg?imageMogr2/thumbnail/360x360/format/webp/quality/100',
   }]
 })
-const openUpload = ref<boolean>(false)
+const openUpload = shallowRef<boolean>(false)
 // 上传图片
 const uploadImage = async (_options: UploadRequestOptions) => {
   Log.info('views/ThePost', 'todo 上传图片')
 }
 
-const dialogImageUrl = ref('')
-const dialogVisible = ref(false)
+const dialogImageUrl = shallowRef('')
+const dialogVisible = shallowRef(false)
 const handlePictureCardPreview: UploadProps['onPreview'] = (uploadFile) => {
   Log.info('views/ThePost', '打开缩略图')
   dialogImageUrl.value = uploadFile.url!
@@ -58,14 +58,20 @@ const handlePublish = () => {
     }
     Log.info('views/ThePost', '组装帖子标签ids', tagIds)
     // 4. 发布帖子
-    const data = await publishPost({ postId: post.id, content: post.content, tagIds: tagIds })
+    const data = await publishPost({ postId: post.id, title: post.title, content: post.content, tagIds: tagIds })
     if (!data) {
       Log.error('views/ThePost', '发布帖子失败')
       return
     }
+    successMsg('发布帖子成功')
     Log.info('views/ThePost', '发布帖子成功', data)
     setStorage('cczj_token', data.token)
-    router.push('/')
+    router.push({
+      path: '/post/details/' + post.id,
+      query: {
+        post: JSON.stringify(post),
+      }
+    })
   }).catch(() => { });
 }
 
@@ -155,7 +161,7 @@ const handleBeforeUnload = (_event: BeforeUnloadEvent) => {
             :user="user" />
         </div>
         <div class="post-body">
-          <BaseMarkDown @update-Content="updateContent" :post-id="post.id" :content="post.content" />
+          <BaseMarkDown @update-Content="updateContent" :mode="'editor'" :post-id="post.id" :content="post.content" />
         </div>
       </div>
     </div>

@@ -1,39 +1,42 @@
 <script lang="ts" setup>
 import type { FormInstance, FormRules } from 'element-plus'
-import { getCurrentInstance, ref } from 'vue'
-import { smsSend, login, register, updateInfo } from '../gateway/api'
-import { alertBox, confirmBox, infoMsg, successMsg, warnMsg } from '../utils/message/message'
+import { getCurrentInstance, ref, shallowRef, unref, watch } from 'vue'
+import { smsSend, login, register, updateInfo, closeSession, createSession, searchUser, getSessions, updateSessionTopic } from '../gateway/api'
+import { alertBox, confirmBox, errorMsg, infoMsg, successMsg, warnMsg } from '../utils/message/message'
 import { clearStorage, getStorageFromKey, setStorage } from '../utils/storage/config'
 import { Log } from '../utils/log/log'
 import type { UserResp } from '../gateway/interface/userResp'
+import type { MessageResp, SessionResp } from '../gateway/interface/messageResp'
 import hasPermission from '../utils/permission/permission'
+import CCZJWebSocket from '../utils/websocket'
 import store from '../store'
+import { getTimeNow } from '../utils/time'
 
 // ------------------- 父子通信区 -------------------
 const { proxy } = getCurrentInstance() as any
 const router = proxy.$router
-const user = ref(getStorageFromKey('cczj_user') as UserResp || store.data.user)
+const user = shallowRef(getStorageFromKey('cczj_user') as UserResp || store.data.user)
 // 登陆弹窗
-const dialogLogin = ref(false)
+const dialogLogin = shallowRef<boolean>(false)
 // 搜索内容
-const searchInput = ref('')
+const searchInput = shallowRef<string>('')
 // 弹窗类型
-const dialogType = ref(false)
+const dialogType = shallowRef<boolean>(false)
 // 弹窗登录类型
-const dialogLoginType = ref(false)
+const dialogLoginType = shallowRef<boolean>(false)
 // 处理倒计时
-const handleTime = ref(61)
+const handleTime = shallowRef<number>(61)
 // 复选框
-const checked = ref(false)
+const checked = shallowRef<boolean>(false)
 const refForm = ref<FormInstance | null>(null)
 const refFormEmail = ref<FormInstance | null>(null)
 const refPhoneLogin = ref({
-  mobile: ref<string>(''),
-  code: ref<string>('')
+  mobile: '',
+  code: ''
 })
 const refEmailLogin = ref({
-  key: ref('16639528057'),
-  password: ref('123456')
+  key: '16639528057',
+  password: '123456'
 })
 
 const ruleEmail = ref(<FormRules>{
@@ -80,35 +83,246 @@ const rulePhone = ref(<FormRules>{
 const navs = ref([{
   id: 1,
   name: '首页',
-  url: 'https://www.nowcoder.com/'
+  url: '#'
 }, {
   id: 2,
-  name: '题库',
-  url: 'https://www.nowcoder.com/contestRoom'
+  name: '友圈',
+  url: '#'
 }, {
   id: 3,
-  name: '课程',
-  url: 'https://www.nowcoder.com/courses'
-}, {
-  id: 4,
-  name: '讨论区',
-  url: 'https://www.nowcoder.com/discuss'
-}, {
-  id: 5,
-  name: '求职',
-  url: 'https://www.nowcoder.com/job'
-}, {
-  id: 6,
-  name: '企业',
-  url: 'https://www.nowcoder.com/company'
+  name: '消息',
+  url: 'message'
 }
 ])
+// 消息窗口
+const dialogMessage = shallowRef(false)
+// 是否消息窗口全屏
+const isFull = shallowRef(false)
+const handleMessage = (signal: boolean) => {
+  if (signal) {
+    dialogMessage.value = true
+    createWebsocket()
+  }
+}
+
+const ws = shallowRef<CCZJWebSocket | null>(null)
+const createWebsocket = () => {
+  const token = getStorageFromKey('cczj_token')
+  if (token) {
+    feedSessions()
+    ws.value = new CCZJWebSocket(token)
+    ws.value.recive<MessageResp>(async (data: MessageResp) => {
+      Log.info('components', '收到消息', data)
+      if (activeSession.value) {
+        // 先判断是不是当前消息
+        if (parseInt(data.target_id) === parseInt(activeSession.value.target_id)
+          && parseInt(data.user_id) === parseInt(activeSession.value.user_id)) {
+          var flag = false
+          activeSession.value.messages.forEach((message) => {
+            if (message.id === data.id) {
+              flag = true
+              message.status = data.status
+            }
+          })
+          // 如果找不到说明不是状态修改，需要加入新消息
+          if (!flag) {
+            activeSession.value.messages.push(data)
+          }
+        } else {
+          // 判断是不是当前会话里的某个消息
+          var flag = false
+          sessions.value.forEach((session) => {
+            if (parseInt(data.target_id) === parseInt(session.target_id)
+              && parseInt(data.user_id) === parseInt(session.user_id)) {
+              session.messages.push(data)
+              flag = true
+              return;
+            }
+          })
+          if (!flag) {
+            // 如果不是当前消息，需要更新未读消息
+            const data2 = await createSession(data.target_id)
+            if (!data2) {
+              Log.error('components', '创建会话失败')
+              errorMsg('创建会话失败，请联系管理员')
+              return
+            }
+            successMsg('收到新消息')
+            Log.info('components', '创建会话成功')
+            setStorage('cczj_token', data2.token)
+            data2.session.messages.push(data)
+            sessions.value.push(data2.session)
+          }
+        }
+      }
+    })
+  } else {
+    dialogLogin.value = true
+    store.data.setDialogLogin(true)
+    warnMsg('请先登录')
+  }
+}
+
+// handleCloseWebsocket 关闭websocket窗口
+const handleCloseWebsocket = () => {
+  dialogMessage.value = false
+  if (ws.value) {
+    ws.value.close()
+  }
+}
+const activeSession = ref<SessionResp>();
+const sessions = ref<SessionResp[]>([])
+const feedSessions = async () => {
+  const data = await getSessions()
+  if (!data) {
+    Log.error('components', '获取会话列表失败')
+    errorMsg('获取会话列表失败，请联系管理员')
+    return
+  }
+  Log.info('components', '获取会话列表成功', data)
+  setStorage('cczj_token', data.token)
+  sessions.value = data.sessions
+  dialogUsers.value = data.users
+  dialogUsersCount.value = 9
+  if (sessions.value.length > 0) {
+    activeSession.value = sessions.value[0]
+    sessionTopic.value = activeSession.value.topic
+  }
+}
+
+const sessionTopic = shallowRef('新的会话')
+const topicOnlyRead = shallowRef(true)
+// handleEditSession 编辑会话
+const handleEditSession = async (id: number | undefined) => {
+  if (typeof id === 'undefined' || topicOnlyRead.value) return;
+  const content = sessionTopic.value.trim()
+  if (content === '') {
+    warnMsg('请输入会话主题')
+    return
+  }
+  if (content === activeSession.value?.topic) {
+    topicOnlyRead.value = true
+    return
+  };
+  const data = await updateSessionTopic({ 'id': id, 'topic': content })
+  if (!data) {
+    Log.error('components', '编辑会话失败')
+    errorMsg('编辑会话失败，请联系管理员')
+    topicOnlyRead.value = true
+    return
+  }
+  Log.info('components', '编辑会话成功', data)
+  setStorage('cczj_token', data.token)
+  sessions.value.forEach((session) => {
+    if (session.id === id) {
+      session.topic = unref(sessionTopic)
+      activeSession.value = session
+      return;
+    }
+  })
+  topicOnlyRead.value = true
+}
+// 关闭会话窗口
+const handleCloseSession = async (id: number) => {
+  const data = await closeSession(id)
+  if (!data) {
+    Log.error('components', '关闭会话失败')
+    errorMsg('删除会话失败，请联系管理员')
+    return
+  }
+  Log.info('components', '关闭会话成功')
+  setStorage('cczj_token', data.token)
+  sessions.value = sessions.value.filter((session) => session.id !== id)
+}
+
+// handleCreateSession 创建新会话
+const handleCreateSession = async (targetId: string) => {
+  const data = await createSession(targetId)
+  if (!data) {
+    Log.error('components', '创建会话失败')
+    errorMsg('创建会话失败，请联系管理员')
+    return
+  }
+  Log.info('components', '创建会话成功')
+  setStorage('cczj_token', data.token)
+  sessions.value.push(data.session)
+  handleSessionSwitch(data.session)
+  dialogSearchUser.value = false
+}
+
+// 消息发送
+const messageContent = shallowRef('')
+const sendMessage = () => {
+  if (!ws.value) {
+    warnMsg('请重新打开消息窗口')
+    return
+  }
+  const content = messageContent.value.trim()
+  if (content === '') {
+    warnMsg('请输入消息内容')
+    return
+  }
+  if (activeSession.value) {
+    ws.value.send<MessageResp>({
+      id: '0',
+      content: content,
+      user_id: user.value.user_id.toString(),
+      target_id: activeSession.value.target_id.toString(),
+      status: 0,
+      create_at: getTimeNow()
+    })
+    activeSession.value.messages.push({
+      id: '0',
+      content: content,
+      user_id: user.value.user_id.toString(),
+      target_id: activeSession.value.target_id.toString(),
+      status: 0,
+      create_at: getTimeNow()
+    })
+    messageContent.value = ''
+  }
+}
+
+// 会话切换
+const handleSessionSwitch = (session: SessionResp) => {
+  activeSession.value = session
+  sessionTopic.value = session.topic
+}
+
+const dialogSearchUser = shallowRef(false)
+const dialogSearchInput = shallowRef<string>('')
+const dialogPage = shallowRef<number>(1)
+const dialogUsersCount = shallowRef(0)
+const dialogUsers = ref<UserResp[]>([])
+const handleSearchUser = async () => {
+  const nickname = unref(dialogSearchInput).trim()
+  if (nickname === '') {
+    warnMsg('请输入搜索用户昵称')
+    return
+  }
+  const data = await searchUser(dialogPage.value, nickname)
+  if (!data) {
+    Log.error('components', '搜索用户失败')
+    errorMsg('搜索用户失败，请联系管理员')
+    return
+  }
+  if (data.count === 0) {
+    successMsg('没有搜索到用户')
+    return
+  }
+  dialogPage.value++
+  dialogUsers.value.push(...data.users)
+  dialogUsersCount.value = data.count
+  Log.info('components', '搜索用户成功', data.users)
+  setStorage('cczj_token', data.token)
+}
+
 // 控制头像抽屉的显示与隐藏
-const drawerVisible = ref(false);
-const innerDrawer = ref(false);
-const drawerMenuType = ref('collect');
-const adminSecret = ref('')
-const dailyImage = ref('https://img-baofun.zhhainiao.com/fs/7f66bf9152c32f79205ca3a77a5af6df.jpg')
+const drawerVisible = shallowRef(false);
+const innerDrawer = shallowRef(false);
+const drawerMenuType = shallowRef('collect');
+const adminSecret = shallowRef('')
+const dailyImage = shallowRef('https://img-baofun.zhhainiao.com/fs/7f66bf9152c32f79205ca3a77a5af6df.jpg')
 const dailyinit = () => {
   if (getStorageFromKey('dailyImage')) {
     dailyImage.value = getStorageFromKey('dailyImage')
@@ -120,15 +334,15 @@ const dailyinit = () => {
 dailyinit()
 // 判断当前路径是否是当前导航
 const judgePath = (url: string): Boolean => {
-  return url === 'https://www.nowcoder.com/'
+  return url === router.currentRoute.value.path
 }
 // 搜索建议回调函数
 const querySearchAsync = () => { }
 // 点击建议时触发
-const drawerWidth = ref('400px')
-const handleSelect = () => {
-  // 保持抽屉宽度不变
-  drawerWidth.value = store.data.drawerWidth + 'px'
+const drawerWidth = shallowRef<number>(store.data.drawerWidth || 400)
+// 组件 v-el-drawer-drag-width 的回调函数
+const handleWidthChange = (width: number) => {
+  drawerWidth.value = width
 }
 // 登录注册会话回调函数
 const handleClose = (done: () => void) => {
@@ -209,7 +423,6 @@ const handleLoginBtn = () => {
       setStorage('cczj_token', data.token)
       setStorage('cczj_user', data.user)
       user.value = data.user
-      Log.info('components/BaseHeaderComponent', '登录成功', data)
       dialogLogin.value = false
       window.location.reload()
     }
@@ -222,7 +435,7 @@ const isLogin = (typeName: string = 'show'): boolean => {
     return token === null || token === undefined
   }
   if (!token) {
-    dialogLogin.value = true
+    store.data.setDialogLogin(true)
   } else {
     window.open(router.resolve(`/post/${user.value.user_id}`).href, '_blank')
   }
@@ -322,28 +535,44 @@ const LoginAdmin = () => {
 // 退出登录
 const Logout = () => {
   confirmBox('确定退出登录吗？', '退出登录', '退出', '取消').then(() => {
-    clearStorage()
+    if (getStorageFromKey('cczj_nickname')) {
+      clearStorage()
+      setStorage('cczj_nickname', user.value.nickname)
+    } else {
+      clearStorage()
+    }
     window.location.reload()
   }).catch(() => { });
 }
+// 处理取消弹窗
+const handleCancelDialog = (dialog: boolean) => {
+  dialogLogin.value = dialog
+  store.data.setDialogLogin(dialog)
+}
+watch(() => store.data.dialogLogin, (newVal, oldVal) => {
+  if (newVal !== oldVal) {
+    dialogLogin.value = newVal!
+  }
+})
 </script>
 
 <template>
   <header class="nav-header">
     <nav>
-      <a href="https://www.nowcoder.com/" target="_self" class="logo" style="width:100px;">
+      <a href="#" target="_self" class="logo" style="width:100px;">
         <img src="@/assets/img/cczj_blue_logo.png" alt="logo" />
       </a>
       <ul class="nav-header-menu">
         <li v-for="nav in navs" :key="nav.id" class="hover-class nav-header-menuitem">
-          <a id="nav-home" :href="nav.url" target="_self" class="hover-class nc-nav-header-menu-active">{{
-            nav.name }}</a>
+          <a id="nav-home" @click.stop="handleMessage(nav.url === 'message')" target="_self"
+            class="hover-class nc-nav-header-menu-active">{{
+              nav.name }}</a>
           <div class="line" v-show="judgePath(nav.url)" />
         </li>
       </ul>
       <div class="nav-header-search">
         <el-autocomplete v-model="searchInput" :trigger-on-focus="false" :fetch-suggestions="querySearchAsync"
-          placeholder="搜索题目" @select="handleSelect">
+          placeholder="搜索题目">
           <template #suffix>
             <div class="cus-search-suffix">
               <div class="search-suffix-vertical"></div>
@@ -478,15 +707,15 @@ const Logout = () => {
       </div>
       <BaseThemeMode />
       <div v-if="isLogin('show')" class="right">
-        <el-button @click="dialogLogin = true" class="loginRegisterBtn">
+        <el-button @click="handleCancelDialog(true)" class="loginRegisterBtn">
           <span>登录 / 注册</span>
         </el-button>
       </div>
-      <div v-else v-el-drawer-drag-width class="avatar-container">
+      <div v-else v-el-drawer-drag-width="handleWidthChange" class="avatar-container">
         <!-- 点击头像触发抽屉 -->
         <el-avatar class="cczj-cursor-pointer" :size="36" :src="user?.avatar" @click="drawerVisible = true" />
         <!-- 抽屉 -->
-        <el-drawer v-model="drawerVisible" :direction="'rtl'" :size="drawerWidth">
+        <el-drawer v-model="drawerVisible" :direction="'rtl'" :size="`${drawerWidth}px`">
           <template #header="{ titleId, titleClass }">
             <h4 :id="titleId" :class="titleClass">个人中心</h4>
             <BaseAuthComponent :text-show="true" :role-id="user.role.role_id" />
@@ -515,7 +744,7 @@ const Logout = () => {
           <div class="drawer-main">
             <div class="slip-menu">
               <el-menu text-color="var(--el-menu-text-color)" :ellipsis="false" mode="horizontal" :default-active="'1'"
-                class="el-menu-vertical-demo" @select="handleSelect">
+                class="el-menu-vertical-demo">
                 <el-menu-item @click="drawerMenuType = 'collect'; adminSecret += '1'" index="1">
                   收藏：{{ user.collect_count }}
                 </el-menu-item>
@@ -586,7 +815,7 @@ const Logout = () => {
           </div>
         </el-drawer>
       </div>
-      <el-dialog v-model="dialogLogin" @close="dialogLogin = false;" class="login-dialog" width="700px"
+      <el-dialog v-model="dialogLogin" @close="handleCancelDialog(false)" class="login-dialog" width="700px"
         :before-close="handleClose">
         <div>
           <div class="login-top">
@@ -667,6 +896,106 @@ const Logout = () => {
               <img src="@/assets/img/image.png" alt="扫码">
             </div>
           </div>
+        </div>
+      </el-dialog>
+      <el-dialog :class="isFull ? 'dialog-full' : 'dialog-message'" :modal="false" :close-on-click-modal="false"
+        :fullscreen="isFull" v-model="dialogMessage" @close="handleCloseWebsocket" draggable>
+        <!-- 最外层页面于窗口同宽，使聊天面板居中 -->
+        <div class="home-view">
+          <!-- 整个聊天面板 -->
+          <div class="chat-panel">
+            <!-- 左侧的会话列表 -->
+            <div class="session-panel">
+              <div class="title">CCZJ沟通助手</div>
+              <div class="description">构建你的朋友圈吧</div>
+              <div class="session-list">
+                <!-- for循环遍历会话列表用会话组件显示，并监听点击事件和删除事件。点击时切换到被点击的会话，删除时从会话列表中提出被删除的会话。 -->
+                <!--  -->
+                <BaseMessageCard v-for="session in sessions" :key="session.id"
+                  :active="session.id === activeSession?.id" :session="session" class="session"
+                  @click="handleSessionSwitch(session)" @delete="handleCloseSession" />
+              </div>
+              <div class="action-wrapper">
+                <div class="cczj-mr-2">
+                  <el-button @click="isFull = !isFull">
+                    <el-icon :size="15" class="el-icon--left">
+                      <FullScreen />
+                    </el-icon>
+                    {{ isFull ? '退出全屏' : '全屏' }}
+                  </el-button>
+                  <el-button @click="dialogSearchUser = true">
+                    <el-icon :size="15" class="el-icon--left">
+                      <CirclePlus />
+                    </el-icon>
+                    新的聊天
+                  </el-button>
+                </div>
+              </div>
+            </div>
+            <!-- 右侧的消息记录 -->
+            <div class="message-panel">
+              <div class="cczj-flex cczj-items-center cczj-mt-1">
+                <el-input :class="{ 'box-show': topicOnlyRead }" maxlength="30" :readonly="topicOnlyRead"
+                  v-model="sessionTopic" class="topic-input cczj-ml-3 cczj-mr-1"
+                  @blur="handleEditSession(activeSession?.id)" @keydown.enter="handleEditSession(activeSession?.id)" />
+                <el-icon v-show="topicOnlyRead" class="cczj-cursor-pointer" @click="topicOnlyRead = false">
+                  <EditPen />
+                </el-icon>
+                <div class="cczj-flex cczj-items-center target-info">
+                  <el-avatar class="cczj-mr-3" :size="36" :src="activeSession?.target_user?.avatar" />
+                  <span class="header-name">{{ activeSession?.target_user?.nickname }}</span>
+                </div>
+              </div>
+              <el-divider :border-style="'solid'" />
+              <div class="message-list">
+                <BaseMessageRow v-for="message in activeSession?.messages" :key="message.create_at"
+                  :position="message.user_id === user.user_id ? 'right' : 'left'" :message="message"
+                  :user="message.user_id === user.user_id ? user : activeSession?.target_user" />
+              </div>
+              <div class="message-input">
+                <div class="input-wrapper">
+                  <!-- 按回车键发送，输入框高度三行 -->
+                  <el-input v-model="messageContent" :autosize="false" :rows="3" class="input" resize="none"
+                    type="textarea" @keydown.enter="sendMessage">
+                  </el-input>
+                  <div class="button-wrapper">
+                    <el-button type="primary" @click="sendMessage">
+                      <el-icon class="el-icon--left">
+                        <Position />
+                      </el-icon>
+                      发送
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </el-dialog>
+      <el-dialog @keydown.enter="handleSearchUser" class="dialog-search" :close-on-click-modal="false" :modal="false"
+        v-model="dialogSearchUser" @close="dialogSearchUser = false" draggable>
+        <el-input class="dialog-input cczj-mb-5" v-model="dialogSearchInput">
+          <template #append>
+            <el-icon class="cczj-cursor-pointer" @click="handleSearchUser">
+              <Search />
+            </el-icon>
+            <el-button maxlength="200" clearable @click="handleSearchUser" type="success"
+              icon="el-icon-search">搜索</el-button>
+          </template>
+        </el-input>
+        <div class="search">
+          <div class="search-box cczj-flex-wrap cczj-flex cczj-ml-80">
+            <el-card v-for="user in dialogUsers" :key="user.id" class="cczj-ml-3 search-card">
+              <div class="card-info cczj-flex">
+                <el-avatar :size="32" :src="user.avatar" />
+                <el-button @click="handleCreateSession(user.user_id)" class="cczj-ml-5" type="success"
+                  size="small">沟通</el-button>
+              </div>
+              <div class="cczj-mt-3">{{ user.nickname }}</div>
+            </el-card>
+          </div>
+          <el-pagination v-show="dialogUsersCount > 9" size="small" background layout="prev, pager, next"
+            :total="dialogUsersCount" class="cczj-ml-80 cczj-mt-4" />
         </div>
       </el-dialog>
     </nav>
@@ -1369,6 +1698,246 @@ nav .avatar-container .drawer-footer .admin-into {
 }
 
 .login-container .login-right img {
-  margin-left: 20px;
+  margin-left: 25px;
+}
+
+:deep(.el-dialog__headerbtn) {
+  top: 10px
+}
+
+:deep(.dialog-message) {
+  border-radius: 50% !important;
+}
+
+:deep(.dialog-full .el-dialog__body) {
+  height: 100% !important;
+}
+
+.dialog-full .home-view {
+  margin-top: -35px !important;
+  height: 100% !important;
+}
+
+.dialog-full .home-view .chat-panel {
+  width: 100% !important;
+}
+
+.dialog-full .home-view .session-panel {
+  width: 25% !important;
+}
+
+.dialog-full .home-view .message-panel {
+  width: 75% !important;
+}
+
+.message-panel .topic-input {
+  width: 100px !important;
+}
+
+:deep(.message-panel .box-show .el-input__wrapper) {
+  box-shadow: none !important;
+}
+
+.target-info {
+  margin: 0 25%
+}
+
+:deep(.el-divider--horizontal) {
+  margin: 5px 0;
+}
+
+.home-view {
+  display: flex;
+  /* 水平方向上剧中 */
+  justify-content: center;
+  margin-top: -20px;
+}
+
+@media screen and (max-width: 2024px) {
+  .home-view {
+    height: 700px;
+  }
+
+  .home-view .session-panel {
+    width: 260px;
+  }
+
+  .home-view .message-panel {
+    width: 700px;
+  }
+}
+
+@media screen and (max-width: 1536px) {
+  .home-view {
+    height: 600px;
+  }
+
+  .home-view .session-panel {
+    width: 200px;
+  }
+
+  .home-view .message-panel {
+    width: 570px;
+  }
+}
+
+@media screen and (max-width: 1280px) {
+  .home-view {
+    height: 550px;
+  }
+
+  .home-view .session-panel {
+    width: 180px;
+  }
+
+  .home-view .message-panel {
+    width: 470px;
+  }
+
+}
+
+@media screen and (max-width: 1024px) {
+  .home-view {
+    height: 500px;
+  }
+
+  .home-view .session-panel {
+    width: 150px;
+  }
+
+  .home-view .message-panel {
+    width: 370px;
+  }
+}
+
+@media screen and (max-width: 768px) {
+  .home-view {
+    height: 300px;
+    width: 100px;
+  }
+}
+
+.home-view,
+.chat-panel {
+  /* 聊天面板flex布局，让会话列表和聊天记录左右展示 */
+  display: flex;
+  /* 让聊天面板圆润一些 */
+  border-radius: 20px;
+  background-color: white;
+  /* 给一些阴影 */
+  box-shadow: 0 0 20px 20px rgba(0, 255, 255, 0.05);
+  /* 与上方增加一些间距 */
+  /* 左侧聊天会话面板*/
+}
+
+.home-view .chat-panel .session-panel {
+  background-color: rgb(231, 248, 255);
+  border-top-left-radius: 20px;
+  border-bottom-left-radius: 20px;
+  padding: 20px;
+  position: relative;
+  border-right: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+.home-view .chat-panel .title {
+  margin-top: 20px;
+  font-size: 20px;
+}
+
+.home-view .chat-panel .description {
+  color: rgba(black, 0.7);
+  font-size: 10px;
+  margin-top: 10px;
+}
+
+.message-list {
+  min-height: 500px;
+  padding: 15px;
+  overflow-y: scroll;
+}
+
+.message-list .list-enter-active,
+.list-leave-active {
+  transition: all 0.5s ease;
+}
+
+.message-list .list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateX(30px);
+}
+
+.message-input {
+  position: absolute;
+  top: 80%;
+  width: 74%;
+  padding: 20px;
+  border-top: 1px solid rgba(8, 8, 8, 0.07);
+}
+
+.session-list .session {
+  /* 每个会话之间留一些间距 */
+  margin-top: 20px;
+}
+
+.action-wrapper {
+  /* session-panel是相对布局，这边的button-wrapper是相对它绝对布局 */
+  position: absolute;
+  bottom: 20px;
+  left: 0;
+  display: flex;
+  /* 让内部的按钮显示在右侧 */
+  justify-content: flex-end;
+  /* 宽度和session-panel一样宽*/
+  width: 100%;
+}
+
+.button-wrapper {
+  /* session-panel是相对布局，这边的button-wrapper是相对它绝对布局 */
+  display: flex;
+  /* 让内部的按钮显示在右侧 */
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+:deep(.dialog-search) {
+  height: 500px;
+}
+
+.dialog-input {
+  width: 80%;
+  margin-left: 10%;
+  height: 40px;
+}
+
+.search .search-box {
+  gap: 10px;
+  width: 100%;
+}
+
+.dialog-search .search-card {
+  flex: 0 0 calc(25% - 10px * 3 / 4);
+  /* 四列计算 */
+  max-width: calc(25% - 10px * 3 / 4);
+  /* 防止弹性扩展 */
+  box-sizing: border-box;
+  user-select: none;
+}
+
+.dialog-search .search-card:hover {
+  background-color: #eefaf7;
+}
+
+.card-info {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+@media (max-width: 1200px) {
+  .search-card {
+    /* 三列计算 */
+    flex-basis: calc(33.33% - 10px * 2 / 3);
+    max-width: calc(33.33% - 10px * 2 / 3);
+  }
 }
 </style>

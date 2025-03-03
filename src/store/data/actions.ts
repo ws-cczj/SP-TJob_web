@@ -4,6 +4,10 @@ import type { DateActions } from './actions-types';
 export const actions: DateActions = {
   queryUsers() {
   },
+  setDialogLogin(isOpen: boolean) {
+    if (this.dialogLogin === isOpen) return;
+    this.dialogLogin = isOpen;
+  },
   setDrawerWidth(width: number) { 
     if(this.drawerWidth === width) return;
     this.drawerWidth = width;

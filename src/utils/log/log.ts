@@ -1,4 +1,3 @@
-
 // 安装 chalk 库：pnpm add chalk
 import chalk, {type ChalkInstance} from "chalk";
 

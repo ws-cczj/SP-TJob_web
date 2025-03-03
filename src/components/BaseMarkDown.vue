@@ -3,7 +3,7 @@ import 'bytemd/dist/index.css' // bytemd markdown
 import 'highlight.js/styles/vs.css'
 import 'juejin-markdown-themes/dist/juejin.min.css';
 import { ref } from 'vue'
-import { Editor } from '@bytemd/vue-next';
+import { Editor, Viewer } from '@bytemd/vue-next';
 import gfm from '@bytemd/plugin-gfm';
 import gemoji from '@bytemd/plugin-gemoji';
 import highlight from '@bytemd/plugin-highlight';
@@ -42,6 +42,7 @@ const plugins = ref([
 const porps = defineProps<{
   postId: number
   content: string
+  mode: string
 }>()
 const emit = defineEmits(['updateContent'])
 const timeout = ref<number>(0)
@@ -107,13 +108,13 @@ const uploadImage = (data: FormData): string => {
   console.log('uploadImage', data)
   return ""
 }
-
 </script>
 
 <template>
   <div class="cczj-markdown">
-    <Editor mode="split" placeholder="请输入内容..." :locale="zhHans" :value="porps.content" :plugins="plugins"
-      @paste="handlePaste" @change="handleChange" :upload-images="handleUploadImages" />
+    <Editor v-if="porps.mode === 'editor'" mode="split" placeholder="请输入内容..." :locale="zhHans" :value="porps.content"
+      :plugins="plugins" @paste="handlePaste" @change="handleChange" :upload-images="handleUploadImages" />
+    <Viewer v-else :locale="zhHans" :value="porps.content" :plugins="plugins" />
   </div>
 </template>
 

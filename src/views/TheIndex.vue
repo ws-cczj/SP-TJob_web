@@ -4,7 +4,6 @@
 <template>
   <BaseHeaderComponent />
   <BaseMainComponent />
-  <BaseFooterComponent />
 </template>
 
 <style scoped></style>

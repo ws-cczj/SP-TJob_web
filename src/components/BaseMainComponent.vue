@@ -1,60 +1,180 @@
 <script lang="ts" setup>
-import { onMounted, onBeforeUnmount, ref, watch, reactive } from 'vue';
-import { getStorageFromKey } from '../utils/storage/config';
-import { throttle } from 'lodash-es';
+import { onMounted, onBeforeUnmount, ref, watch, shallowRef, unref } from 'vue';
 import type { UserResp } from '../gateway/interface/userResp';
 import type { PostResp } from '../gateway/interface/postResp';
 import type { TagResp } from '../gateway/interface/tagResp';
+import { ban, getFeedPost, cancelLikePost, likePost, cancelCollectPost, collectPost, getVisitorPost } from '../gateway/api';
+import { getStorageFromKey, setStorage } from '../utils/storage/config';
+import { confirmBox, errorMsg, promptBox, successMsg, warnMsg } from '../utils/message/message';
+import { getTimeTenMinutes, getTimeToDay, formatTime } from '../utils/time';
 import hasPermission from '../utils/permission/permission';
-import { confirmBox, promptBox, successMsg, warnMsg } from '../utils/message/message';
+import { Log } from '../utils/log/log';
+import { throttle } from 'lodash-es';
 import store from '../store';
+import router from '../router';
 
-const user = ref(getStorageFromKey('cczj_user') as UserResp || store.data.user)
+const user = shallowRef(getStorageFromKey('cczj_user') as UserResp || store.data.user)
 // 传递user参数
-const isDark = ref(getStorageFromKey('theme') as boolean || false);
+const isDark = shallowRef(getStorageFromKey('theme') as boolean || false);
 const refDivSticky = ref<HTMLDivElement>();
 // 更新粘性元素的背景色
 const updateStickyBgColor = ref(() => { });
-const postList = reactive<PostResp[]>([{
-  id: 1,
-  views: 100,
-  hots: 100,
-  collected_count: 100,
-  status: 1,
-  title: '我是神人!',
-  content: '宝子们，这个产品实习生岗位主要是参与AI产品从需求到上线的全流程，还要做调研、推运营、出方案等~我们公司是深圳清华大学研究院智慧能源研发中心🧐，现招聘产品实习生。薪资面议💰岗位要求：要懂AI对产品的变革，有',
-  tags: [
-    { id: 1, content: '产品经理', type: 'success' },
-  ],
-  author: {
-    id: 1, nickname: '捶捶自己', user_id: '', bean: '1', gender: 0, avatar: '', role: { role_id: 20, description: '普通用户', permission: '' }
-  },
-  create_at: '2022-02-07 15:34',
-  update_at: '2022-02-07 15:34',
-}])
+// 帖子数据
+const posts = ref<PostResp[]>([])
+// 帖子页数默认0
+const pageCount = shallowRef<number>(0)
+// 帖子id集合
+const postIds = shallowRef<string>('')
+const isLoading = shallowRef<boolean>(false)
+const getPosts = async () => {
+  isLoading.value = true;
+  const token = getStorageFromKey('cczj_token')
+  if (!token) {
+    const data = await getVisitorPost(pageCount.value, postIds.value)
+    if (!data) {
+      Log.error('views/ThePost', '获取帖子失败')
+      errorMsg('请联系管理员！')
+      return
+    }
+    Log.info('views/ThePost', '获取帖子成功', data)
+    if (data.posts.length > 0) {
+      data.posts.forEach((post: PostResp, index: number) => {
+        posts.value.push(post)
+        if (index === data.posts.length - 1) {
+          postIds.value += post.id
+        } else {
+          postIds.value += post.id + ','
+        }
+      })
+    }
+  } else {
+    const data = await getFeedPost(pageCount.value, postIds.value)
+    if (!data) {
+      Log.error('views/ThePost', '获取帖子失败')
+      errorMsg('请联系管理员！')
+      return
+    }
+    Log.info('views/ThePost', '获取帖子成功', data)
+    setStorage('cczj_token', data.token)
+    if (data.posts.length > 0) {
+      data.posts.forEach((post: PostResp, index: number) => {
+        posts.value.push(post)
+        if (index === data.posts.length - 1) {
+          postIds.value += post.id
+        } else {
+          postIds.value += post.id + ','
+        }
+      })
+    }
+  }
+  // 页表++防止监听事件重复执行
+  pageCount.value++
+  isLoading.value = false;
+}
+getPosts();
+// 跳转到详情页
+const handleToDeatails = (postId: number) => {
+  window.open(router.resolve({ name: 'details', params: { postId: postId } }).href, '_blank')
+}
 // 更新tags
 const updateTags = (postId: number, tags: TagResp[]) => {
-  postList.forEach((post) => {
+  posts.value.forEach((post) => {
     if (post.id === postId) {
       post.tags = tags
       return;
     }
   })
-  console.log('更新tags', postList)
+  console.log('更新tags', posts)
   // TODO 数据库更新tags
 }
 // 从内容提取描述
 const extractDescription = (content: string) => {
-  const endThemeIdx = content.indexOf('---', 3);
-  if (endThemeIdx === -1) {
-    return content.length > 100 ? content.slice(0, 100) : content
+  // 新增步骤：移除所有代码块内容（包括``````及其包裹的内容）
+  var realContent = ''
+  realContent = content.replace(/```[\s\S]*?```/g, '');
+  const endThemeIdx = realContent.indexOf('---', 3);
+  if (endThemeIdx !== -1) {
+    realContent = realContent.slice(endThemeIdx + 3)
   }
-  var realContent = content.slice(endThemeIdx + 3)
+  // 查找#开头的内容
+  const startIndex = realContent.indexOf('#');
+  // 截取#之后的全部内容[4]()[10]()
+  realContent = realContent.substring(startIndex + 1);
+  // 正则表达式清理Markdown格式字符[2]()[15]()
+  realContent = realContent.replace(/(\s*[#>*]+\s*) |(\*\*)/g, '')
+    .replace(/\s{2,}/g, ',')
+    .replace(/(\[.*?\]\(.*?\))/g, '')
+    .replace(/[\r\n]/g, ',')
+    .trim();
   return realContent.length > 100 ? realContent.slice(0, 100) : realContent
 }
-// 点赞，评论等 交互事件
-const handleInteraction = () => {
-};
+const handleLikePost = throttle(async (postId: number, currentBool: boolean) => {
+  if (currentBool) {
+    const data = await cancelLikePost(postId, 0)
+    if (!data) {
+      Log.error('views/ThePost', '取消点赞失败')
+      return;
+    }
+    Log.info('views/ThePost', '取消点赞成功')
+    setStorage('cczj_token', data.token)
+    posts.value.forEach((post) => {
+      if (post.id === postId) {
+        post.is_like = false
+        post.liked_count--
+        return;
+      }
+    })
+  } else {
+    const data = await likePost(postId, 0)
+    if (!data) {
+      Log.error('views/ThePost', '点赞失败')
+      return;
+    }
+    Log.info('views/ThePost', '点赞成功')
+    setStorage('cczj_token', data.token)
+    posts.value.forEach((post) => {
+      if (post.id === postId) {
+        post.is_like = true
+        post.liked_count++
+        return;
+      }
+    })
+  }
+}, 200)
+// handleCollect 处理收藏
+const handleCollect = throttle(async (postId: number, currentBool: boolean) => {
+  if (currentBool) {
+    const data = await cancelCollectPost(postId)
+    if (!data) {
+      Log.error('views/ThePost', '取消收藏失败')
+      return;
+    }
+    Log.info('views/ThePost', '取消收藏成功')
+    setStorage('cczj_token', data.token)
+    posts.value.forEach((post) => {
+      if (post.id === postId) {
+        post.is_collect = false
+        post.collected_count--
+        return;
+      }
+    })
+  } else {
+    const data = await collectPost(postId)
+    if (!data) {
+      Log.error('views/ThePost', '收藏失败')
+      return;
+    }
+    Log.info('views/ThePost', '收藏成功')
+    setStorage('cczj_token', data.token)
+    posts.value.forEach((post) => {
+      if (post.id === postId) {
+        post.is_collect = true
+        post.collected_count++
+        return;
+      }
+    })
+  }
+}, 200)
 // 删除帖子
 const handleDelete = () => {
   confirmBox('确定删除帖子吗？', '确定');
@@ -62,11 +182,11 @@ const handleDelete = () => {
 
 // 封禁用户
 const handleBan = (targetId: string) => {
-  promptBox('封禁用户天数(默认10min): ', '确定').then(({ value }) => {
-    var date = new Date()
+  promptBox('封禁用户天数(默认10min): ', '确定').then(async ({ value }) => {
+    var banAt = ''
     if (value === null) {
       // 如果是空则默认
-      date.setMinutes(date.getMinutes() + 10);
+      banAt = getTimeTenMinutes()
     } else {
       const dayTime = parseInt(value)
       if (Number.isNaN(dayTime)) {
@@ -77,16 +197,25 @@ const handleBan = (targetId: string) => {
         warnMsg('日期不能为负')
         return
       }
-      date.setDate(date.getDate() + dayTime)
+      banAt = getTimeToDay(dayTime)
     }
-    // 查询目标是否已经被封禁了
-    successMsg(`封禁成功, 目标用户${targetId}解封日期为：${date.toLocaleString().replace(/\//g, '-')}`)
+    const data = await ban(targetId, banAt)
+    if (!data) {
+      Log.error('views/ThePost', '封禁失败')
+      errorMsg('封禁失败')
+      return
+    }
+    successMsg(`封禁成功, 目标用户${targetId}解封日期为：${banAt}`)
+    setStorage('cczj_token', data.token)
   }).catch(() => { })
 }
 
 // 推/限流帖子
 const handleHot = (_val: number) => {
 }
+// 监听用户浏览到第几个帖子了
+const refListenPost = ref<HTMLDivElement[]>();
+const listenUserView = shallowRef<() => void>();
 onMounted(() => {
   const divSticky = refDivSticky.value;
   if (divSticky) {
@@ -109,6 +238,25 @@ onMounted(() => {
     }, 16);
     window.addEventListener('scroll', updateStickyBgColor.value);
   }
+  listenUserView.value = throttle(() => {
+    const scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+    // 通过监听用户浏览帖子数，来懒加载帖子
+    const listenPost = unref(refListenPost);
+    if (listenPost) {
+      // 计算当前是第几个帖子
+      const index = (unref(pageCount) - 1) * 10 + 5
+      if (listenPost.length >= index) {
+        if (listenPost[index].offsetTop < scrollTop + window.innerHeight) {
+          getPosts();
+        }
+      }
+    }
+  }, 300)
+  window.addEventListener('scroll', listenUserView.value);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', listenUserView.value!);
+  window.removeEventListener('scroll', updateStickyBgColor.value);
 });
 // 监听黑暗模式的变化
 watch(() => store.data.isDark, (newVal) => {
@@ -130,9 +278,6 @@ watch(() => store.data.isDark, (newVal) => {
     window.removeEventListener('scroll', updateStickyBgColor.value);
   }
 });
-onBeforeUnmount(() => {
-  window.removeEventListener('scroll', updateStickyBgColor.value);
-});
 </script>
 
 <template>
@@ -153,17 +298,21 @@ onBeforeUnmount(() => {
               </div>
               <div class="cczj-content cczj-p-5">
                 <div class="cczj-list">
-                  <BaseSkeletonComponent />
-                  <div v-for="post in postList" :key="post.id" class="list-window cczj-p-3">
+                  <div ref="refListenPost" v-for="post in posts" :key="post.id" class="list-window cczj-p-3">
                     <div class="list-top cczj-flex">
-                      <el-avatar :src="post.author.avatar" class="cczj-mr-2" :size="32" />
+                      <el-popover placement="top" :width="230" trigger="hover">
+                        <template #reference>
+                          <el-avatar :src="post.author.avatar" class="cczj-mr-2" :size="32" />
+                        </template>
+                        <BaseUserCard :user="post.author" />
+                      </el-popover>
                       <div class="user-info">
                         <div class="nickname">
                           {{ post.author.nickname }}
                           <BaseAuthComponent :text-show="false" :role-id="post.author.role.role_id" />
                         </div>
                         <div class="info">
-                          <span class="cczj-mr-2">{{ post.create_at }}</span>
+                          <span class="cczj-mr-2">{{ formatTime(post.create_at) }}</span>
                           <span style="line-height: 30px;">
                             <svg t="1739880154795" class="icon" viewBox="0 -200 1024 1024" version="1.1"
                               xmlns="http://www.w3.org/2000/svg" p-id="1374" width="20" height="20">
@@ -181,24 +330,24 @@ onBeforeUnmount(() => {
                           </span>
                         </div>
                       </div>
-                      <el-dropdown v-if="post.author.role.role_id < 20" class="admin-select" trigger="click"
+                      <el-dropdown v-if="user.role.role_id < 20" class="admin-select" trigger="click"
                         placement="bottom">
                         ...
                         <template #dropdown>
                           <el-dropdown-menu>
                             <el-dropdown-item @click="handleDelete"
-                              v-if="hasPermission(post.author.role.permission, 'delete')">删除帖子</el-dropdown-item>
-                            <el-dropdown-item @click="handleBan('1')"
-                              v-if="hasPermission(post.author.role.permission, 'ban')">封禁用户</el-dropdown-item>
+                              v-if="hasPermission(user.role.permission, 'delete')">删除帖子</el-dropdown-item>
+                            <el-dropdown-item @click="handleBan(post.author.user_id)"
+                              v-if="hasPermission(user.role.permission, 'ban')">封禁用户</el-dropdown-item>
                             <el-dropdown-item @click="handleHot(432)"
-                              v-if="hasPermission(post.author.role.permission, 'update')">推流帖子</el-dropdown-item>
+                              v-if="hasPermission(user.role.permission, 'update')">推流帖子</el-dropdown-item>
                             <el-dropdown-item @click="handleHot(-432)"
-                              v-if="hasPermission(post.author.role.permission, 'update')">限流帖子</el-dropdown-item>
+                              v-if="hasPermission(user.role.permission, 'update')">限流帖子</el-dropdown-item>
                           </el-dropdown-menu>
                         </template>
                       </el-dropdown>
                     </div>
-                    <div class="list-body">
+                    <div @click="handleToDeatails(post.id)" class="list-body">
                       <div class="body-top">
                         <p>{{ post.title }}</p>
                       </div>
@@ -226,7 +375,7 @@ onBeforeUnmount(() => {
                           :extend="false" />
                       </div>
                       <div class="cczj-interaction">
-                        <span :class="true ? 'active' : ''" @click="handleInteraction()">
+                        <span :class="post.is_like ? 'active' : ''" @click="handleLikePost(post.id, post.is_like)">
                           <svg t="1738924645254" class="icon" viewBox="0 -200 1024 1024" version="1.1"
                             xmlns="http://www.w3.org/2000/svg" p-id="1896" width="20" height="20">
                             <path
@@ -242,32 +391,14 @@ onBeforeUnmount(() => {
                               d="M399.6 512c-20.6 0-37.2-16.6-37.2-37.2v-37.2c0-61.5 50-111.6 111.6-111.6 61.5 0 111.5 50 111.5 111.6 0 20.5-16.6 37.2-37.2 37.2-20.5 0-37.2-16.6-37.2-37.2 0-20.5-16.7-37.2-37.2-37.2s-37.2 16.7-37.2 37.2v37.2c0.1 20.5-16.6 37.2-37.1 37.2"
                               p-id="1900"></path>
                           </svg>
-                          顶
+                          {{ post.liked_count }}
                         </span>
-                        <span>
-                          <svg t="1738928677652" class="icon" viewBox="0 -200 1024 1024" version="1.1"
-                            xmlns="http://www.w3.org/2000/svg" p-id="3008" width="20" height="20">
+                        <span @click="handleCollect(post.id, post.is_collect)" :class="post.is_collect ? 'active' : ''">
+                          <svg t="1740377270213" class="icon" viewBox="0 -200 1024 1024" version="1.1"
+                            xmlns="http://www.w3.org/2000/svg" p-id="1606" width="20" height="20">
                             <path
-                              d="M624.4 65.8C808.9 65.8 959 215.9 959 400.5c0 20.6-16.6 37.2-37.2 37.2s-37.2-16.6-37.2-37.2c0-143.5-116.8-260.3-260.3-260.3-45.8 0-90.8 12-130.1 34.80000001-17.8 10.4-40.60000001 4.2-50.8-13.50000002-10.3-17.8-4.2-40.5 13.59999999-50.79999999 50.7-29.4 108.6-44.9 167.40000001-44.9M333.3 177.4c9.5 0 19 3.6 26.3 10.9 14.5 14.5 14.5 38 0 52.6l-210.3 210.4c-7.1 7-10.9 16.3-10.9 26.3 0 9.89999999 3.9 19.3 10.9 26.3 14.1 14 38.5 14 52.5 0L300.6 405c14.5-14.5 38.1-14.5 52.6 0s14.5 38.1 0 52.6l-98.8 98.8c-42 42.1-115.5 42.2-157.7 0-21.1-21.1-32.7-49.1-32.7-78.9 0-29.8 11.6-57.8 32.7-78.9L307.09999999 188.3c7.2-7.3 16.7-10.9 26.20000001-10.9"
-                              p-id="3009"></path>
-                            <path
-                              d="M326.9 400.5c20.6 0 37.2 16.6 37.2 37.2l0 409c0 20.49999999 16.70000001 37.2 37.2 37.2s37.2-16.70000001 37.2-37.2l0-297.5c0-20.6 16.6-37.2 37.2-37.2 20.49999999 0 37.2 16.6 37.2 37.2L512.9 846.7c0 61.5-50 111.5-111.49999999 111.5s-111.6-50-111.60000001-111.5l0-409c0-20.6 16.6-37.2 37.1-37.2M921.9 363.3c20.6 0 37.2 16.6 37.2 37.2L959.1 512c0 61.5-50 111.5-111.6 111.5-61.5 0-111.5-50-111.49999999-111.5 0-20.6 16.6-37.2 37.2-37.2s37.2 16.6 37.2 37.2c0 20.49999999 16.70000001 37.2 37.2 37.2s37.2-16.70000001 37.2-37.2l-1e-8-111.5c-0.1-20.6 16.5-37.2 37.1-37.2"
-                              p-id="3010"></path>
-                            <path
-                              d="M773.1 474.8c20.6 0 37.2 16.6 37.2 37.2l0 37.2c0 61.5-50 111.5-111.5 111.5s-111.6-50-111.59999999-111.5c0-20.6 16.6-37.2 37.2-37.2s37.2 16.6 37.2 37.2c0 20.49999999 16.70000001 37.2 37.2 37.2S736 569.7 736.00000001 549.2L736.00000001 512c-0.1-20.5 16.6-37.2 37.09999999-37.2"
-                              p-id="3011"></path>
-                            <path
-                              d="M624.40000001 512c20.6 0 37.2 16.6 37.2 37.2l0 37.2c0 61.5-50 111.6-111.60000001 111.60000001-61.5 0-111.5-50-111.5-111.60000001 0-20.49999999 16.6-37.2 37.2-37.2 20.49999999 0 37.2 16.6 37.2 37.2 0 20.49999999 16.70000001 37.2 37.2 37.2s37.2-16.70000001 37.2-37.2l0-37.2c-0.1-20.5 16.6-37.2 37.10000001-37.2"
-                              p-id="3012"></path>
-                          </svg>
-                          踩
-                        </span>
-                        <span>
-                          <svg t="1738980673157" class="icon" viewBox="0 -200 1024 1024" version="1.1"
-                            xmlns="http://www.w3.org/2000/svg" p-id="1246" width="20" height="20">
-                            <path
-                              d="M512 850.368 220.096 538.752c-55.68-59.968-82.432-121.216-79.424-182.208 3.968-78.912 57.216-126.912 59.52-128.896 42.176-35.968 87.232-54.08 134.336-54.08 81.088 0 145.984 53.44 177.408 85.376 31.552-32 96.192-85.376 177.6-85.376 47.104 0 92.16 18.112 134.08 53.76 2.624 2.24 55.808 50.24 59.776 129.152 3.072 60.928-23.68 122.24-79.36 182.144L512 850.368 512 850.368M233.92 266.624c0 0-39.36 36.096-41.792 93.248C190.08 406.272 212.16 454.656 257.792 503.552L512 774.976l254.272-271.424c45.44-49.088 67.712-97.408 65.536-143.68-2.496-57.152-41.792-93.312-42.304-93.632-31.744-27.2-65.536-41.152-100.032-41.152-86.848 0-156.544 87.488-157.248 88.32L511.424 340.032 491.2 312.896C490.944 312.512 421.696 225.152 334.464 225.152 299.968 225.152 266.176 239.104 233.92 266.624L233.92 266.624 233.92 266.624M233.92 266.624 233.92 266.624z"
-                              p-id="1247"></path>
+                              d="M509.606998 143.114488c9.082866 0 17.327644 4.840238 20.996197 12.331863l97.262184 197.441814c5.613858 11.403724 16.663518 19.358907 29.438473 21.216207l223.738737 32.552393c8.420787 1.215688 15.604396 6.851035 18.23327 14.254655 2.520403 7.18361 0.595564 15.062044-5.084808 20.586874L730.253304 601.611947c-8.949836 8.751315-12.994965 21.171182-10.916631 33.370015l38.011732 222.060515c1.325182 7.737218-2.165316 15.426341-8.905834 19.978007-4.088108 2.741437-8.861832 4.155646-13.812587 4.155646-4.022617 0-7.999185-0.972141-11.425214-2.740414L528.149307 775.671215c-5.768377-3.006474-12.155854-4.552689-18.542308-4.552689-6.364965 0-12.727882 1.547239-18.518772 4.552689L296.254819 878.348736c-3.559059 1.855254-7.602142 2.828418-11.668761 2.828418-4.861728 0-9.723455-1.459235-13.546527-4.022617-6.961552-4.684696-10.475586-12.419867-9.127891-20.155039l38.011732-222.016513c2.078335-12.198833-1.988284-24.619724-10.939143-33.370015L125.02397 441.443038c-5.635347-5.492084-7.55814-13.348006-5.061272-20.453844 2.63092-7.481392 9.812483-13.116739 18.298761-14.332427l223.674269-32.552393c12.839423-1.857301 23.867594-9.813506 29.481452-21.216207l97.194646-197.396789C492.325403 147.965983 500.590648 143.114488 509.606998 143.114488M509.606998 104.904235c-24.043602 0-45.922912 13.226233-56.177464 33.95637L356.189863 336.302419l-223.674269 32.54216c-22.983457 3.304256-42.100864 18.718317-49.481971 39.659255-7.381108 21.048385-1.812275 44.23241 14.431687 60.033281l163.916257 160.125931-38.011732 222.016513c-3.868097 22.408359 6.03239 44.819788 25.458835 57.94676 10.69662 7.116071 23.204491 10.784624 35.757388 10.784624 10.298554 0 20.663622-2.475378 30.055526-7.337105l194.987926-102.7205L704.662463 912.072815c9.369392 4.861728 19.712971 7.337105 29.990035 7.337105 12.57541 0 25.082258-3.668553 35.778878-10.784624 19.426445-13.126972 29.305443-35.538401 25.460882-57.94676l-38.012755-222.016513 163.937746-160.125931c16.22145-15.812127 21.810748-38.984896 14.408151-60.033281-7.402597-20.940938-26.51898-36.353976-49.503461-39.659255L663.04767 336.302419l-97.240695-197.441814C555.619962 118.131491 533.695626 104.904235 509.606998 104.904235L509.606998 104.904235z"
+                              p-id="1607"></path>
                           </svg>
                           {{ post.collected_count }}
                         </span>
@@ -279,7 +410,7 @@ onBeforeUnmount(() => {
                               p-id="2685">
                             </path>
                           </svg>
-                          0
+                          {{ post.comment_count }}
                         </span>
                         <span>
                           <svg t="1738928486832" class="icon" viewBox="0 -200 1024 1024" version="1.1"
@@ -299,6 +430,9 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
                   </div>
+                  <BaseSkeletonComponent v-show="isLoading" />
+                  <BaseSkeletonComponent v-show="isLoading" />
+                  <BaseSkeletonComponent v-show="isLoading" />
                 </div>
               </div>
             </div>
@@ -505,7 +639,7 @@ onBeforeUnmount(() => {
 .cczj-list .list-top .admin-select {
   position: relative;
   top: 0px;
-  left: 75%;
+  left: 65%;
   font-size: 20px;
   cursor: pointer;
 }

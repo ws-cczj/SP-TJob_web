@@ -7,7 +7,6 @@ for (let path in modules) {
   const theme = modules[path];
   highlightThemes[name] = { style: theme };
 }
-console.log(themes, "!!!", highlightThemes);
 
 let $tree: any;
 let $frontmatter;

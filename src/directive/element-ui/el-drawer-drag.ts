@@ -1,12 +1,15 @@
 import type { Directive } from 'vue';
-import { throttle } from 'lodash-es';
 import store from '../../store';
 
+// 边界值
+const width20: number = document.body.clientWidth * 0.2;
+const width80: number = document.body.clientWidth * 0.8;
 let handleMouseMove: (e: MouseEvent) => void;
 let handleMouseUp: () => void;
+let realWidth: number;
 
 export const elDrawerDrag: Directive = {
-  mounted(el: HTMLElement) {
+  mounted(el: HTMLElement, binding) {
     const drawerEle: HTMLElement = el.querySelector('.el-drawer') as HTMLElement;
     const dragItem: HTMLElement = document.createElement('div');
     dragItem.style.cssText = 'height: 100%;width: 5px;cursor: w-resize;position: absolute;left: 0;';
@@ -14,23 +17,21 @@ export const elDrawerDrag: Directive = {
 
     let isDragging = false;
     let startX: number, startWidth: number;
-
-    handleMouseMove = throttle((moveEvent: MouseEvent) => {
+    handleMouseMove = (moveEvent: MouseEvent) => {
       if (!isDragging) return;
-
       requestAnimationFrame(() => {
-        let realWidth: number = startWidth + (startX - moveEvent.pageX);
-        const width30: number = document.body.clientWidth * 0.2;
-        const width80: number = document.body.clientWidth * 0.8;
-        realWidth = Math.min(Math.max(realWidth, width30), width80);
-        drawerEle.style.width = `${realWidth}px`;
-        store.data.setDrawerWidth(realWidth);
+        realWidth = startWidth + (startX - moveEvent.pageX);
+        realWidth = Math.min(Math.max(realWidth, width20), width80);
+        binding && binding.value(realWidth);
       });
-    }, 16);
+    };
 
     handleMouseUp = () => {
       isDragging = false;
+      store.data.setDrawerWidth(realWidth);
       document.body.style.userSelect = 'initial';
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
     };
 
     dragItem.onmousedown = (e: MouseEvent) => {
@@ -38,14 +39,11 @@ export const elDrawerDrag: Directive = {
       startX = e.pageX;
       startWidth = drawerEle.offsetWidth;
       document.body.style.userSelect = 'none';
+      // 绑定事件监听器
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
     };
-
-    // 绑定事件监听器
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
   },
-  beforeUnmount() {
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-  },
+  unmounted() {
+  }
 };
