@@ -22,7 +22,7 @@ declare module '@bytemd/vue-next' {
 }
 
 declare module "*.vue" {
-  import type { DefineComponent } from "vue"
+  import type { DefineComponent, readonly, readonly } from "vue"
   const component: DefineComponent<{}, {}, any>
   export default component
 }

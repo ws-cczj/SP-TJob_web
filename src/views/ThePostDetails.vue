@@ -1,7 +1,7 @@
 <script lang="ts" setup>
-import { cancelCollectPost, cancelLikePost, collectPost, getDetailsPost, getVisitorDetailsPost, likePost } from '../gateway/api';
+import { cancelCollectPost, cancelLikePost, collectPost, editPost, getDetailsPost, getVisitorDetailsPost, likePost, savePostComment } from '../gateway/api';
 import type { PostResp } from '../gateway/interface/postResp';
-import { nextTick, onMounted, onUnmounted, ref, shallowRef, unref } from 'vue';
+import { nextTick, onMounted, onUnmounted, ref, shallowRef, unref, watch } from 'vue';
 import { Log } from '../utils/log/log';
 import { getStorageFromKey, setStorage } from '../utils/storage/config';
 import { formatTime } from '../utils/time';
@@ -9,9 +9,14 @@ import { getProcessor } from 'bytemd';
 import { throttle } from 'lodash-es';
 import router from '../router';
 import store from '../store';
-import { successMsg } from '../utils/message/message';
+import { confirmBox, successMsg, warnMsg } from '../utils/message/message';
+import hasPermission from '../utils/permission/permission';
+import { UserResp } from '../gateway/interface/userResp';
 
-const post = ref<PostResp>();
+// 黑夜模式
+const isDark = shallowRef<boolean>(getStorageFromKey('cczj_theme') || false)
+const post = ref<PostResp>({} as PostResp);
+const user = shallowRef<UserResp>(getStorageFromKey('cczj_user') || {} as UserResp)
 const getPost = async () => {
   const toPost = router.currentRoute.value.query.post
   if (toPost) {
@@ -28,7 +33,6 @@ const getPost = async () => {
     }
     Log.info('views/ThePostDetails', '获取文章详情成功', 'data:', data);
     post.value = data.post;
-    setStorage('cczj_token', data.token);
   } else {
     const data = await getVisitorDetailsPost(postId);
     if (!data) {
@@ -41,6 +45,25 @@ const getPost = async () => {
 }
 getPost()
 
+const handleBackEdit = () => {
+  confirmBox('是否重新编辑该帖子？', '确定', 'warning').then(async () => {
+    const postId = post.value.id
+    if (post.value.status !== 2) {
+      warnMsg('该帖子处于未发布状态，不能重新编辑！')
+      return
+    }
+    const data = await editPost(postId)
+    if (!data) {
+      Log.error('views/ThePost', '重新编辑该帖子失败')
+      return
+    }
+    Log.info('views/ThePost', '重新编辑该帖子成功')
+    setStorage('cczj_token', data.token)
+    router.push({ name: 'post', params: { userId: post.value.author.user_id }, query: { postId: postId } })
+  }).catch(() => {
+  })
+}
+
 const copyLink = (postId: number) => {
   const input = document.createElement('input');
   input.value = window.location.href + router.resolve({ name: 'details', params: { postId: postId } }).href;
@@ -52,6 +75,11 @@ const copyLink = (postId: number) => {
 }
 
 const handleLikePost = throttle(async (postId: number, currentBool: boolean) => {
+  const token = getStorageFromKey('cczj_token');
+  if (!token) {
+    store.data.setDialogLogin(true);
+    return;
+  }
   if (currentBool) {
     const data = await cancelLikePost(postId, 0)
     if (!data) {
@@ -78,6 +106,11 @@ const handleLikePost = throttle(async (postId: number, currentBool: boolean) => 
 }, 200)
 // handleCollect 处理收藏
 const handleCollect = throttle(async (postId: number, currentBool: boolean) => {
+  const token = getStorageFromKey('cczj_token');
+  if (!token) {
+    store.data.setDialogLogin(true);
+    return;
+  }
   if (currentBool) {
     const data = await cancelCollectPost(postId)
     if (!data) {
@@ -103,13 +136,44 @@ const handleCollect = throttle(async (postId: number, currentBool: boolean) => {
   }
 }, 200)
 
+const handleTalk = (userId: string) => {
+  const token = getStorageFromKey('cczj_token');
+  const user = getStorageFromKey('cczj_user');
+  if (!token || !user) {
+    // 如果token为空说明没有登录，跳转到登录页面
+    store.data.setDialogLogin(true)
+    return;
+  }
+  if (user.user_id === userId) {
+    // 如果通话目标是自己，则不能发起通话
+    warnMsg('不能和自己发起通话');
+    return;
+  }
+  store.data.setDialogSessionId(userId)
+}
+
 const ChangeCommentNum = (num: number) => {
   if (post.value?.comment_count) {
     post.value!.comment_count += num;
   }
 }
 
-type catalog = {
+const editComment = async (postId: number) => {
+  if (!post.value.comment) {
+    warnMsg('请输入评价内容')
+    return;
+  }
+  const data = await savePostComment({ postId: postId, comment: post.value.comment })
+  if (!data) {
+    Log.error('views/ThePost', '评价失败')
+    return;
+  }
+  Log.info('views/ThePost', '评价成功', data)
+  successMsg('评价成功')
+  setStorage('cczj_token', data.token)
+}
+
+declare type catalog = {
   tagName: string
   text: string
   children: catalog[]
@@ -273,6 +337,15 @@ const scrollHandle = throttle(() => {
   }
 }, 100)
 
+// 监听黑暗模式的变化
+watch(() => store.data.isDark, (newVal) => {
+  if (newVal) {
+    isDark.value = true
+  } else {
+    isDark.value = false
+  }
+});
+
 onMounted(() => {
   setTimeout(() => {
     getCataLogData(); // 只在挂载时执行一次
@@ -296,7 +369,7 @@ onUnmounted(() => {
 
 <template>
   <BaseHeaderComponent />
-  <el-main class="details-container">
+  <el-main :class="{ 'dark': isDark }" class="details-container">
     <div class="container">
       <div class="row">
         <div class="row-header">
@@ -306,8 +379,8 @@ onUnmounted(() => {
           <div class="cczj-flex cczj-mb-3 cczj-flex-wrap cczj-box-border">
             <div class="cczj-flex cczj-items-center">
               <a class="cczj-flex cczj-items-center cczj-mr-3" href="#">
-                <el-avatar class="cczj-mr-4" :src="post?.author.avatar" :size="32" />
-                <span>{{ post?.author.nickname }}</span>
+                <el-avatar class="cczj-mr-4" :src="post.author?.avatar" :size="32" />
+                <span>{{ post.author?.nickname }}</span>
               </a>
               <el-tooltip content="浏览量" placement="top">
                 <div class="preRead cczj-mr-3">
@@ -336,7 +409,7 @@ onUnmounted(() => {
                       d="M753.7 467.5H548.5V244.2c0-20.6-16.7-37.2-37.2-37.2S474 223.6 474 244.2v260.6c0 20.6 16.7 37.2 37.2 37.2h242.5c20.6 0 37.2-16.7 37.2-37.2s-16.6-37.3-37.2-37.3z"
                       fill="#23202D" p-id="1701"></path>
                   </svg>
-                  <span>阅读: {{ Math.ceil((post?.content.length || 400) / 400) }}分钟</span>
+                  <span>阅读: {{ Math.ceil((post.content?.length || 400) / 400) }}分钟</span>
                 </div>
               </el-tooltip>
               <el-tooltip :content="`最后更新时间: ${formatTime(post?.update_at)}`" placement="top">
@@ -353,6 +426,12 @@ onUnmounted(() => {
                   <el-tag type="warning">待审核</el-tag>
                 </div>
               </el-tooltip>
+              <div v-if="post.author?.user_id === user?.user_id" class="back-edit cczj-mt-3" @click="handleBackEdit">
+                重新编辑
+                <el-icon>
+                  <Edit />
+                </el-icon>
+              </div>
             </div>
           </div>
         </div>
@@ -362,9 +441,10 @@ onUnmounted(() => {
           <div class="sticky-slider">
             <div class="sticky-inner">
               <div v-if="post?.status === 2" class="group">
-                <el-button @click="handleLikePost(post.id, post.is_like)" class="isLike cczj-mb-3" circle
-                  type="success"><svg t="1740554190728" class="icon" viewBox="0 0 1024 1024" version="1.1"
-                    xmlns="http://www.w3.org/2000/svg" p-id="3377" width="32" height="32">
+                <el-button @click="handleLikePost(post.id, post.is_like)" :class="{ 'dark': isDark }"
+                  class="isLike cczj-mb-3" circle type="success"><svg t="1740554190728" class="icon"
+                    viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="3377" width="32"
+                    height="32">
                     <path
                       d="M399.6 958.2C215.1 958.2 65 808.1 65 623.5c0-20.6 16.6-37.2 37.2-37.2s37.2 16.6 37.2 37.2c0 143.5 116.8 260.3 260.3 260.3 45.8 0 90.8-12 130.1-34.8 17.8-10.4 40.6-4.2 50.8 13.5 10.3 17.8 4.2 40.5-13.6 50.8-50.7 29.4-108.6 44.9-167.4 44.9M690.7 846.6c-9.5 0-19-3.6-26.3-10.9-14.5-14.5-14.5-38 0-52.6l210.3-210.4c7.1-7 10.9-16.3 10.9-26.3 0-9.9-3.9-19.3-10.9-26.3-14.1-14-38.5-14-52.5 0L723.4 619c-14.5 14.5-38.1 14.5-52.6 0s-14.5-38.1 0-52.6l98.8-98.8c42-42.1 115.5-42.2 157.7 0 21.1 21.1 32.7 49.1 32.7 78.9 0 29.8-11.6 57.8-32.7 78.9L716.9 835.7c-7.2 7.3-16.7 10.9-26.2 10.9"
                       fill="#1afa29" p-id="3378"></path>
@@ -378,8 +458,8 @@ onUnmounted(() => {
                       d="M399.6 512c-20.6 0-37.2-16.6-37.2-37.2v-37.2c0-61.5 50-111.6 111.6-111.6 61.5 0 111.5 50 111.5 111.6 0 20.5-16.6 37.2-37.2 37.2-20.5 0-37.2-16.6-37.2-37.2 0-20.5-16.7-37.2-37.2-37.2s-37.2 16.7-37.2 37.2v37.2c0.1 20.5-16.6 37.2-37.1 37.2"
                       fill="#1afa29" p-id="3381"></path>
                   </svg></el-button>
-                <el-button @click="handleCollect(post.id, post.is_collect)" class="cczj-mb-3 cancel" circle
-                  type="success">
+                <el-button @click="handleCollect(post.id, post.is_collect)" :class="{ 'dark': isDark }"
+                  class="cczj-mb-3 cancel" circle type="success">
                   <svg t="1740553614394" class="icon" viewBox="0 0 1024 1024" version="1.1"
                     xmlns="http://www.w3.org/2000/svg" p-id="2018" width="24" height="24">
                     <path
@@ -387,8 +467,8 @@ onUnmounted(() => {
                       fill="#1afa29" p-id="2019"></path>
                   </svg>
                 </el-button>
-                <el-button @click="copyLink(post.id)" class="cczj-mb-3 cancel" circle type="success"><svg
-                    t="1740554014175" class="icon" viewBox="0 0 1024 1024" version="1.1"
+                <el-button @click="copyLink(post.id)" class="cczj-mb-3 cancel" :class="{ 'dark': isDark }" circle
+                  type="success"><svg t="1740554014175" class="icon" viewBox="0 0 1024 1024" version="1.1"
                     xmlns="http://www.w3.org/2000/svg" p-id="2892" width="24" height="24">
                     <path
                       d="M821.527273 428.683636H539.461818c-12.8 0-23.272727-10.472727-23.272727-23.272727s10.472727-23.272727 23.272727-23.272727H821.527273c12.8 0 23.272727 10.472727 23.272727 23.272727s-10.472727 23.272727-23.272727 23.272727zM146.618182 903.447273c-12.8 0-23.272727-10.472727-23.272727-23.272728V587.869091c0-51.665455 23.738182-101.003636 67.025454-138.938182 48.407273-42.356364 117.061818-66.792727 188.741818-66.792727 12.8 0 23.272727 10.472727 23.272728 23.272727s-10.472727 23.272727-23.272728 23.272727c-60.509091 0-118.225455 20.014545-158.021818 55.156364-33.047273 29.090909-51.2 65.861818-51.2 104.029091v292.305454c0 13.032727-10.472727 23.272727-23.272727 23.272728z"
@@ -400,22 +480,38 @@ onUnmounted(() => {
                       d="M621.381818 693.992727c-5.12 0-10.24-1.629091-14.661818-5.12a23.272727 23.272727 0 0 1-3.258182-32.814545l213.876364-262.981818a23.272727 23.272727 0 0 1 32.814545-3.258182 23.272727 23.272727 0 0 1 3.258182 32.814545l-213.876364 262.981818c-4.654545 5.585455-11.170909 8.378182-18.152727 8.378182z"
                       fill="#1afa29" p-id="2895"></path>
                   </svg></el-button>
-                <el-button @click="store.data.setDialogSessionId(post.author.user_id)" class="cancel" circle
+                <el-button :class="{ 'dark': isDark }" @click="handleTalk(post.author.user_id)" class="cancel" circle
                   type="success">聊一下</el-button>
               </div>
             </div>
           </div>
         </div>
-        <div class="viewer">
+        <div :class="{ 'dark': isDark }" class="viewer">
           <BaseMarkDown :mode="'viewer'" :post-id="post?.id || 0" :content="post?.content || ''" />
           <el-divider />
-          <BaseCommentComponent v-if="post?.status === 2" @change-num="ChangeCommentNum" :post="post" />
+          <BaseCommentComponent :class="{ 'dark': isDark }" v-if="post?.status === 2" @change-num="ChangeCommentNum"
+            :post="post" />
         </div>
         <div class="catalog">
+          <div class="cczj-flex cczj-mb-5 offical">
+            <span class="offical-text">
+              官方追评：
+            </span>
+            <span class="offical-visitor" v-if="!hasPermission(user.role?.permission, 'update')">{{ post.comment
+              ?
+              post.comment : '暂无' }}</span>
+            <el-input v-else @blur="editComment(post.id)" class="cczj-mt-1" v-model="post.comment">
+              <template #suffix>
+                <el-icon style="cursor: pointer;">
+                  <Edit />
+                </el-icon>
+              </template>
+            </el-input>
+          </div>
           <div class="catalog-sticky cczj-flex">
             <el-divider :style="`height: ${divideHight}px`" direction="vertical" />
             <!--显示目录-->
-            <div class="marker-card">
+            <div v-if="cateList.length > 0" :class="{ 'dark': isDark }" class="marker-card">
               <a v-for="(item, index) in cateList" :key="index"
                 :class="[{ active: anchor == index }, item.tagName + '-class']" class="marker-item"
                 @click="scrollToSection('head-' + index, index)">{{ item.text }}</a>
@@ -432,9 +528,13 @@ onUnmounted(() => {
 .details-container {
   --bs-bg-opacity: 1;
   --bs-white-rgb: 255, 255, 255;
-  background-color: rgba(var(--bs-white-rgb), var(--bs-bg-opacity)) !important;
+  background-color: rgba(var(--bs-white-rgb), var(--bs-bg-opacity));
   padding-top: 3rem !important;
   padding-bottom: 3rem !important;
+}
+
+.dark {
+  background-color: rgb(8, 8, 8) !important;
 }
 
 .container {
@@ -471,11 +571,21 @@ onUnmounted(() => {
   font-family: 'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;
 }
 
+.back-edit {
+  color: var(--project_base_color);
+}
+
+.back-edit:hover {
+  color: var(--project_base_color_hover);
+  cursor: pointer;
+}
+
 .left-slider {
   flex: 0 0 auto;
   width: 16.66666667%;
   justify-content: flex-end !important;
   align-items: flex-start !important;
+  z-index: 10;
 }
 
 .sticky-slider {
@@ -527,12 +637,46 @@ onUnmounted(() => {
   margin: 0 auto !important;
 }
 
+.viewer.dark {
+  color: #fff !important;
+}
+
 .catalog {
   flex: 0 0 auto;
   width: 16.66666667%;
   padding-left: 20px;
   position: sticky;
   top: 100px;
+}
+
+.offical {
+  color: var(--Re6_u);
+  user-select: none;
+}
+
+.offical .offical-text {
+  font-size: 14px;
+  width: 70px;
+  margin-top: 15px;
+}
+
+.offical .offical-visitor {
+  font-size: 20px;
+  margin-top: 10px;
+}
+
+.offical:deep(.el-input__wrapper) {
+  box-shadow: none !important;
+}
+
+.offical:deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px var(--Re6_u, var(--el-border-color)) inset !important;
+}
+
+.offical:deep(.el-input__inner) {
+  color: var(--Re6_u) !important;
+  margin-left: -10px;
+  font-size: 20px;
 }
 
 .catalog .catalog-sticky {
@@ -578,5 +722,6 @@ onUnmounted(() => {
   .markdown-body h5:first-child,
   .markdown-body h6:first-child) {
   margin-top: 0 !important;
+  width: 100%;
 }
 </style>

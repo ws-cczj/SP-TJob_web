@@ -3,7 +3,7 @@ import { onMounted, onBeforeUnmount, ref, watch, shallowRef, unref } from 'vue';
 import type { UserResp } from '../gateway/interface/userResp';
 import type { PostResp } from '../gateway/interface/postResp';
 import type { TagResp } from '../gateway/interface/tagResp';
-import { ban, getFeedPost, cancelLikePost, likePost, cancelCollectPost, collectPost, getVisitorPost } from '../gateway/api';
+import { ban, getFeedPost, cancelLikePost, likePost, cancelCollectPost, collectPost, getVisitorPost, getPostHot, updatePostTags, topPost, footerPost, removePost } from '../gateway/api';
 import { getStorageFromKey, setStorage } from '../utils/storage/config';
 import { confirmBox, errorMsg, promptBox, successMsg, warnMsg } from '../utils/message/message';
 import { getTimeTenMinutes, getTimeToDay, formatTime } from '../utils/time';
@@ -19,6 +19,45 @@ const isDark = shallowRef(getStorageFromKey('theme') as boolean || false);
 const refDivSticky = ref<HTMLDivElement>();
 // 更新粘性元素的背景色
 const updateStickyBgColor = ref(() => { });
+declare type Image = {
+  id: number;
+  url: string[];
+}
+const imgList = ref<Image[]>([{
+  id: 1,
+  url: [],
+}, {
+  id: 2,
+  url: ['https://tse4-mm.cn.bing.net/th/id/OIP-C._SkDzPdqbQm56KjuUmFpWAHaHa?w=209&h=209&c=7&r=0&o=5&pid=1.7', 'https://tse2-mm.cn.bing.net/th/id/OIP-C.ZFNIP6ZsSSknKAMavC0KCwHaG6?rs=1&pid=ImgDetMain', 'https://bpic.588ku.com/element_pic/21/12/08/805ff1c2cbf9e105978f09352df7ce62.jpg!/fw/351/unsharp/true'],
+}, {
+  id: 3,
+  url: [],
+}, {
+  id: 4,
+  url: ['https://pic.616pic.com/ys_bnew_img/00/16/93/ym1IlBbRz6.jpg', 'https://img.tukuppt.com/png_preview/00/28/33/xOGrb26cec.jpg!/fw/780'],
+}, {
+  id: 5,
+  url: ['https://pic.616pic.com/ys_bnew_img/00/20/92/s9sYg5XTga.jpg'],
+}, {
+  id: 6,
+  url: [],
+}, {
+  id: 7,
+  url: [],
+}, {
+  id: 8,
+  url: [],
+}, {
+  id: 9,
+  url: [],
+}, {
+  id: 10,
+  url: [],
+}, {
+  id: 11,
+  url: [],
+}
+])
 // 帖子数据
 const posts = ref<PostResp[]>([])
 const originPosts = shallowRef<PostResp[]>([])
@@ -57,7 +96,6 @@ const getPosts = async () => {
       return
     }
     Log.info('views/ThePost', '获取帖子成功', data)
-    setStorage('cczj_token', data.token)
     if (data.posts.length > 0) {
       data.posts.forEach((post: PostResp, index: number) => {
         originPosts.value.push(post)
@@ -75,6 +113,22 @@ const getPosts = async () => {
   isLoading.value = false;
 }
 getPosts();
+const postHotList = shallowRef<PostResp[]>([])
+const getPostsHot = async () => {
+  const data = await getPostHot()
+  if (!data) {
+    Log.error('views/ThePost', '获取热门帖子失败')
+    errorMsg('请联系管理员！')
+    return
+  }
+  Log.info('views/ThePost', '获取热门帖子成功', data)
+  postHotList.value = data.posts
+}
+getPostsHot();
+const handleHotNum = (_val: number): number | string => {
+  const res = _val % 10000000 > 1250000 ? '9999+' : _val % 10000000
+  return res
+}
 // 过滤帖子
 const active = shallowRef<number>(2)
 const handleFilterPost = (type: string = 'all') => {
@@ -99,15 +153,30 @@ const handleToDeatails = (postId: number) => {
   window.open(router.resolve({ name: 'details', params: { postId: postId } }).href, '_blank')
 }
 // 更新tags
-const updateTags = (postId: number, tags: TagResp[]) => {
+const updateTags = async (postId: number, tags: TagResp[]) => {
   posts.value.forEach((post) => {
     if (post.id === postId) {
       post.tags = tags
       return;
     }
   })
-  console.log('更新tags', posts)
-  // TODO 数据库更新tags
+  // 组装tagIds
+  var tagIds = ''
+  tags.forEach((tag, index) => {
+    if (index === tags.length - 1) {
+      tagIds += tag.id
+    } else {
+      tagIds += tag.id + ','
+    }
+  })
+  const data = await updatePostTags({ postId: postId, tags: tagIds })
+  if (!data) {
+    Log.error('views/ThePost', '更新tags失败')
+    errorMsg('更新tags失败')
+    return
+  }
+  setStorage('cczj_token', data.token)
+  Log.info('views/ThePost', '更新tags成功')
 }
 // 从内容提取描述
 const extractDescription = (content: string) => {
@@ -140,6 +209,11 @@ const copyLink = (postId: number) => {
   successMsg('帖子链接已复制！');
 }
 const handleLikePost = throttle(async (postId: number, currentBool: boolean) => {
+  const token = getStorageFromKey('cczj_token');
+  if (!token) {
+    store.data.setDialogLogin(true);
+    return;
+  }
   if (currentBool) {
     const data = await cancelLikePost(postId, 0)
     if (!data) {
@@ -174,6 +248,11 @@ const handleLikePost = throttle(async (postId: number, currentBool: boolean) => 
 }, 200)
 // handleCollect 处理收藏
 const handleCollect = throttle(async (postId: number, currentBool: boolean) => {
+  const token = getStorageFromKey('cczj_token');
+  if (!token) {
+    store.data.setDialogLogin(true);
+    return;
+  }
   if (currentBool) {
     const data = await cancelCollectPost(postId)
     if (!data) {
@@ -207,8 +286,21 @@ const handleCollect = throttle(async (postId: number, currentBool: boolean) => {
   }
 }, 200)
 // 删除帖子
-const handleDelete = () => {
-  confirmBox('确定删除帖子吗？', '确定');
+const handleDelete = (postId: number) => {
+  confirmBox('确定删除帖子吗？', '确定').then(async () => {
+    const data = await removePost(postId)
+    if (!data) {
+      Log.error('views/ThePost', '删除帖子失败')
+      errorMsg('删除帖子失败')
+      return
+    }
+    successMsg('删除帖子成功')
+    setStorage('cczj_token', data.token)
+    posts.value = posts.value.filter((post) => {
+      return post.id !== postId
+    })
+    postIds.value = postIds.value.replace(postId.toString() + ',', '')
+  }).catch(() => { });
 }
 
 // 封禁用户
@@ -242,11 +334,18 @@ const handleBan = (targetId: string) => {
 }
 
 // 推/限流帖子
-const handleHot = (_val: number) => {
-  todo()
+const handleHot = async (postId: number) => {
+  await topPost(postId)
+  successMsg('推流成功')
 }
-const todo = () => {
-  warnMsg('功能开发中...')
+const handleFooterHot = async (postId: number) => {
+  await footerPost(postId)
+  successMsg('限流成功')
+}
+// 广告显示
+const adShow = shallowRef<boolean>(true)
+const redirectToDeepSeek = () => {
+  window.open('https://www.deepseek.com', '_blank')
 }
 // 监听用户浏览到第几个帖子了
 const refListenPost = ref<HTMLDivElement[]>();
@@ -278,9 +377,9 @@ onMounted(() => {
     // 通过监听用户浏览帖子数，来懒加载帖子
     const listenPost = unref(refListenPost);
     if (listenPost) {
-      // 计算当前是第几个帖子
-      const index = (unref(pageCount) - 1) * 10 + 5
-      if (listenPost.length >= index) {
+      // 计算当前是第几个帖子 默认每次获取10个帖子
+      const index = (unref(pageCount) - 1) * 10 + 9
+      if (listenPost.length > index) {
         if (listenPost[index].offsetTop < scrollTop + window.innerHeight) {
           getPosts();
         }
@@ -295,18 +394,16 @@ onBeforeUnmount(() => {
 });
 // 监听黑暗模式的变化
 watch(() => store.data.isDark, (newVal) => {
-  if (newVal == false) {
-    const pageC = document.querySelector('.page-container') as HTMLElement;
-    pageC.style.background = 'linear-gradient(180deg, #ecfafa, #f8f8f8)';
+  if (!newVal) {
+    isDark.value = false;
     if (refDivSticky.value) {
       refDivSticky.value.style.background = 'transparent';
     }
     // 白天 启用滚动事件处理函数
     window.addEventListener('scroll', updateStickyBgColor.value);
   } else {
+    isDark.value = true;
     // 黑夜 禁用滚动事件处理函数
-    const pageC = document.querySelector('.page-container') as HTMLElement;
-    pageC.style.background = 'rgb(8, 8, 8)';
     if (refDivSticky.value) {
       refDivSticky.value.style.background = 'rgb(8, 8, 8)';
     }
@@ -316,8 +413,8 @@ watch(() => store.data.isDark, (newVal) => {
 </script>
 
 <template>
-  <el-main class="cczj-main">
-    <div class="page-container cczj-pt-5">
+  <el-main id="cczj-main">
+    <div :class="{ 'dark': isDark }" class="page-container cczj-pt-5">
       <div class="container">
         <div class="cczj-flex">
           <div class="flex-left">
@@ -326,18 +423,17 @@ watch(() => store.data.isDark, (newVal) => {
                 <div class="cczj-header">
                   <div class="tab-bar cczj-p-5">
                     <span tabindex="-1" :class="{ 'is-active': active === 0 }" @click="handleFilterPost('personal')"
-                      class="cczj-cursor-pointer cczj-mr-48">个人</span>
+                      class="cczj-cursor-pointer cczj-mr-48">个人兼职</span>
                     <span tabindex="-1" :class="{ 'is-active': active === 1 }" @click="handleFilterPost('company')"
-                      class="cczj-cursor-pointer cczj-mr-48">企业</span>
+                      class="cczj-cursor-pointer cczj-mr-48">企业兼职</span>
                     <span tabindex="-1" :class="{ 'is-active': active === 2 }" @click="handleFilterPost('all')"
-                      class="cczj-cursor-pointer cczj-mr-48">全部</span>
-                    <!-- <span tabindex="-1" class="cczj-cursor-pointer">加精</span> -->
+                      class="cczj-cursor-pointer cczj-mr-48">全部兼职</span>
                   </div>
                 </div>
               </div>
               <div class="cczj-content cczj-p-5">
                 <div class="cczj-list">
-                  <div ref="refListenPost" v-for="post in posts" :key="post.id" class="list-window cczj-p-3">
+                  <div ref="refListenPost" v-for="post, index in posts" :key="post.id" class="list-window cczj-p-3">
                     <div class="list-top cczj-flex">
                       <el-popover placement="top" :width="230" trigger="hover">
                         <template #reference>
@@ -369,18 +465,18 @@ watch(() => store.data.isDark, (newVal) => {
                           </span>
                         </div>
                       </div>
-                      <el-dropdown v-if="user.role.role_id < 20" class="admin-select" trigger="click"
-                        placement="bottom">
+                      <el-dropdown v-if="user.role.role_id < 20 || user.user_id === post.author.user_id"
+                        class="admin-select" trigger="click" placement="bottom">
                         ...
                         <template #dropdown>
                           <el-dropdown-menu>
-                            <el-dropdown-item @click="handleDelete"
-                              v-if="hasPermission(user.role.permission, 'delete')">删除帖子</el-dropdown-item>
+                            <el-dropdown-item @click="handleDelete(post.id)"
+                              v-if="hasPermission(user.role.permission, 'delete') || user.user_id === post.author.user_id">删除帖子</el-dropdown-item>
                             <el-dropdown-item @click="handleBan(post.author.user_id)"
                               v-if="hasPermission(user.role.permission, 'ban')">封禁用户</el-dropdown-item>
-                            <el-dropdown-item @click="handleHot(432)"
+                            <el-dropdown-item @click="handleHot(post.id)"
                               v-if="hasPermission(user.role.permission, 'update')">推流帖子</el-dropdown-item>
-                            <el-dropdown-item @click="handleHot(-432)"
+                            <el-dropdown-item @click="handleFooterHot(post.id)"
                               v-if="hasPermission(user.role.permission, 'update')">限流帖子</el-dropdown-item>
                           </el-dropdown-menu>
                         </template>
@@ -393,17 +489,9 @@ watch(() => store.data.isDark, (newVal) => {
                       <div class="body-content">
                         <p>{{ extractDescription(post.content) }}</p>
                         <div class="body-img">
-                          <div :style="`width: calc(100% /${5})`" class="image-box cczj-mr-2">
-                            <img
-                              src="https://desk-fd.zol-img.com.cn/t_s960x600c5/g5/M00/02/03/ChMkJlbKxo2IT63KACN7OztCegEAALHmwPZIQ0AI3tT786.jpg" />
-                          </div>
-                          <div class="image-box cczj-mr-2">
-                            <img
-                              src="https://desk-fd.zol-img.com.cn/t_s960x600c5/g5/M00/02/04/ChMkJlbKyFOILgqwAAU1Zymsk68AALIAgFwgVgABTV_720.jpg"
-                              alt="" />
-                          </div>
-                          <div class="image-box cczj-mr-2">
-                            <img src="https://b.zol-img.com.cn/sjbizhi/images/11/1080x1920/1592964698813.jpg" alt="" />
+                          <div v-for="img, idx in imgList[index].url" :key="idx" :style="`width: calc(100% /${5})`"
+                            class="image-box cczj-mr-2">
+                            <img alt="兼职" :src="img" />
                           </div>
                         </div>
                       </div>
@@ -441,16 +529,6 @@ watch(() => store.data.isDark, (newVal) => {
                           </svg>
                           {{ post.collected_count }}
                         </span>
-                        <!-- <span>
-                          <svg t="1738928260432" class="icon" viewBox="0 -200 1024 1024" version="1.1"
-                            xmlns="http://www.w3.org/2000/svg" p-id="2684" width="20" height="20">
-                            <path
-                              d="M511.999488 847.882863c-28.734592 0-56.729303-2.604314-83.969807-7.099698L231.232673 960.185602 231.232673 761.40735C128.618486 689.355337 62.772174 578.889433 62.772174 454.825836c0-217.07906 201.129864-393.058051 449.228338-393.058051 248.084146 0 449.228338 175.980014 449.228338 393.058051C961.227826 671.917176 760.083635 847.882863 511.999488 847.882863zM511.999488 117.91762c-217.086932 0-393.074156 150.851707-393.074156 336.907193 0 114.166179 66.421434 214.898395 167.761552 275.820929l-1.768346 130.234133 132.171551-79.455633c30.4487 6.497994 62.117231 10.308787 94.910422 10.308787 217.101258 0 393.073132-150.825101 393.073132-336.907193C905.073644 268.769326 729.10177 117.91762 511.999488 117.91762zM736.614169 510.976694c-31.011542 0-56.154182-25.128307-56.154182-56.150858 0-31.010271 25.14264-56.151881 56.154182-56.151881s56.154182 25.14161 56.154182 56.151881C792.768351 485.848387 767.624687 510.976694 736.614169 510.976694zM511.999488 510.976694c-31.010518 0-56.153158-25.128307-56.153158-56.150858 0-31.010271 25.14264-56.151881 56.153158-56.151881 31.011542 0 56.154182 25.14161 56.154182 56.151881C568.15367 485.848387 543.01103 510.976694 511.999488 510.976694zM287.385831 510.976694c-31.010518 0-56.153158-25.128307-56.153158-56.150858 0-31.010271 25.14264-56.151881 56.153158-56.151881s56.153158 25.14161 56.153158 56.151881C343.53899 485.848387 318.39635 510.976694 287.385831 510.976694z"
-                              p-id="2685">
-                            </path>
-                          </svg>
-                          {{ post.comment_count }}
-                        </span> -->
                         <span @click="copyLink(post.id)">
                           <svg t="1738928486832" class="icon" viewBox="0 -200 1024 1024" version="1.1"
                             xmlns="http://www.w3.org/2000/svg" p-id="2845" width="20" height="20">
@@ -469,34 +547,35 @@ watch(() => store.data.isDark, (newVal) => {
                       </div>
                     </div>
                   </div>
-                  <BaseSkeletonComponent v-show="isLoading" />
-                  <BaseSkeletonComponent v-show="isLoading" />
-                  <BaseSkeletonComponent v-show="isLoading" />
+                  <BaseSkeletonComponent :loading="isLoading" />
+                  <BaseSkeletonComponent :loading="isLoading" />
+                  <BaseSkeletonComponent :loading="isLoading" />
                 </div>
               </div>
             </div>
           </div>
           <div class="flex-right">
             <div>
-              <div class="hot-rank">
+              <BaseNowTimeComponent />
+              <div class="cczj-mt-5 hot-rank">
                 <img
                   src="https://static.nowcoder.com/fe/file/site/www-web/prod/1.0.405/imageAssets/fb0f8426d41a5025be30.png"
                   class="top-img">
-                <h2 class="hot-text">全站热榜</h2>
+                <h2 class="hot-text">兼职热榜</h2>
                 <div class="hot-rank-list">
-                  <!-- <BaseSkeletonComponent /> -->
                   <div>
                     <ul class="cczj-hot-list">
-                      <li>
-                        <a href="#">
+                      <li v-for="post, index in postHotList" :key="post.id">
+                        <a @click="handleToDeatails(post.id)" href="javascript:void(0)">
                           <div class="hot-rank-list-item">
-                            <span class="hot-rank-highlight">1</span>
+                            <span class="hot-rank-normal" :class="{ 'hot-rank-highlight': index < 3 }">{{ index + 1
+                            }}</span>
                           </div>
-                          <div class="hot-rank-text">
-                            <span>我的成长我的成长我的成长</span>
+                          <div class="hot-text-normal hot-rank-text">
+                            <span>{{ post.title }}</span>
                           </div>
-                          <div class="hot-number cczj-mr-1">1.2W</div>
-                          <span class="active">
+                          <div class="hot-number cczj-mr-1">{{ handleHotNum(post.hots) }}</div>
+                          <span :class="{ 'active': post.hots % 10000000 > 1250000 }">
                             <svg t="1738934849355" class="icon" viewBox="0 0 1024 1024" version="1.1"
                               xmlns="http://www.w3.org/2000/svg" p-id="1241" width="10" height="10">
                               <path
@@ -504,43 +583,22 @@ watch(() => store.data.isDark, (newVal) => {
                                 p-id="1242"></path>
                             </svg>
                           </span>
-                        </a>
-                      </li>
-                      <li>
-                        <a href="#">
-                          <div class="hot-rank-list-item">
-                            <span class="hot-rank-highlight">2</span>
-                          </div>
-                          <div class="hot-rank-text">
-                            <span>我的成长我的成长我的成长</span>
-                          </div>
-                          <div class="hot-number cczj-mr-1">1.2W</div>
-                          <span>
-                            <svg t="1738934849355" class="icon" viewBox="0 0 1024 1024" version="1.1"
-                              xmlns="http://www.w3.org/2000/svg" p-id="1241" width="10" height="10">
-                              <path
-                                d="M814.933 221.867c-140.8 38.4-166.4 153.6-157.866 226.133C558.933 328.533 563.2 196.267 563.2 0c-320 119.467-247.467 469.333-256 576-76.8-64-93.867-221.867-93.867-221.867-85.333 42.667-128 162.134-128 256C85.333 840.533 268.8 1024 499.2 1024s413.867-183.467 413.867-413.867c4.266-136.533-98.134-200.533-98.134-388.266z m0 0"
-                                p-id="1242"></path>
-                            </svg>
-                          </span>
-                        </a>
-                      </li>
-                      <li>
-                        <a href="#">
-                          <div class="hot-rank-list-item">
-                            <span class="hot-rank-highlight">3</span>
-                          </div>
-                        </a>
-                      </li>
-                      <li>
-                        <a href="#">
-                          <div class="hot-rank-list-item">
-                            <span class="hot-rank-normal">4</span>
-                          </div>
                         </a>
                       </li>
                     </ul>
                   </div>
+                </div>
+              </div>
+              <!-- 左下角固定广告位 -->
+              <div v-if="adShow" class="ad-container">
+                <div @click="adShow = false" class="ad-close">X</div>
+                <div class="ad-label">广告</div>
+                <div @click="redirectToDeepSeek" class="ad-content">
+                  <div class="ad-text">
+                    <div class="main-text">不会写兼职介绍？</div>
+                    <div class="sub-text">DeepSeek智能生成</div>
+                  </div>
+                  <div class="ad-icon">🚀</div>
                 </div>
               </div>
             </div>
@@ -558,7 +616,7 @@ watch(() => store.data.isDark, (newVal) => {
 </template>
 
 <style scoped>
-.cczj-main {
+#cczj-main {
   padding: 0;
   overflow: visible !important;
 }
@@ -569,6 +627,11 @@ watch(() => store.data.isDark, (newVal) => {
   background-size: 100% 600px;
   width: 100%;
   height: 100%;
+  min-height: 100vh;
+}
+
+.page-container.dark {
+  background: linear-gradient(180deg, black, black);
 }
 
 .page-container .container {
@@ -629,12 +692,6 @@ watch(() => store.data.isDark, (newVal) => {
   font-weight: 400;
 }
 
-.page-container .flex-right {
-  margin-left: 20px;
-  width: 270px;
-}
-
-
 .cczj-list .list-window {
   border-bottom: 1px solid #f8f8f8;
   padding: 16px 10px;
@@ -678,6 +735,34 @@ watch(() => store.data.isDark, (newVal) => {
   font-size: 12px;
   line-height: 12px;
   color: rgba(187, 187, 187, 1);
+}
+
+.cczj-list .list-top .time-job {
+  position: relative;
+  top: 70px;
+  left: 40%;
+  align-items: center;
+  display: flex;
+  height: 12px;
+  font-size: 20px;
+  line-height: 12px;
+  color: var(--Re7);
+  user-select: none;
+  rotate: 30deg;
+}
+
+.cczj-list .list-top .time-t {
+  position: relative;
+  top: 70px;
+  left: 10%;
+  align-items: center;
+  display: flex;
+  height: 12px;
+  font-size: 20px;
+  line-height: 12px;
+  color: var(--Re7);
+  user-select: none;
+  rotate: 30deg;
 }
 
 .cczj-list .list-top .admin-select {
@@ -768,6 +853,11 @@ watch(() => store.data.isDark, (newVal) => {
 
 /* 右侧 */
 
+.page-container .flex-right {
+  margin-left: 20px;
+  width: 270px;
+}
+
 .flex-right .top-img {
   width: 100%;
   height: 64px;
@@ -791,6 +881,11 @@ watch(() => store.data.isDark, (newVal) => {
   position: relative;
   top: -50px;
   left: 15px;
+}
+
+.hot-text-normal {
+  color: rgba(153, 153, 153, 1);
+  font-size: 12px;
 }
 
 .flex-right .hot-rank-list {
@@ -867,6 +962,83 @@ watch(() => store.data.isDark, (newVal) => {
 
 .flex-right .hot-rank-list .cczj-hot-list .active svg {
   fill: #d81e06
+}
+
+/* 固定定位在左下角 */
+.ad-container {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  background: #f0f7ff;
+  border: 1px solid #1890ff;
+  border-radius: 8px;
+  padding: 12px 16px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.2);
+  transition: all 0.3s ease;
+  z-index: 999;
+  max-width: 200px;
+}
+
+/* 悬停动效 */
+.ad-container:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
+}
+
+/* 广告标识 */
+.ad-close {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #ff4d4f;
+  color: white;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transform: scale(0.8);
+  z-index: 1000;
+}
+
+/* ×标识 */
+.ad-label {
+  position: absolute;
+  top: -8px;
+  left: -10px;
+  background: #ff4d4f;
+  color: white;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transform: scale(0.8);
+  z-index: 1000;
+}
+
+/* 内容布局 */
+.ad-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ad-text {
+  line-height: 1.4;
+}
+
+.main-text {
+  font-size: 14px;
+  color: #1890ff;
+  font-weight: 500;
+}
+
+.sub-text {
+  font-size: 12px;
+  color: #666;
+}
+
+.ad-icon {
+  font-size: 20px;
+  opacity: 0.8;
 }
 
 /* 底部 */

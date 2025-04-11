@@ -1,27 +1,48 @@
 <script lang="ts" setup>
-import { onMounted, onUnmounted, reactive, shallowRef } from 'vue'
-import type { UploadProps, UploadUserFile, UploadRequestOptions } from 'element-plus'
+import { onMounted, onUnmounted, ref, shallowRef, unref } from 'vue'
+import type { UploadProps, UploadRequestOptions } from 'element-plus'
 import type { TagResp } from '../gateway/interface/tagResp'
 import type { UserResp } from '../gateway/interface/userResp'
-import { confirmBox, successMsg } from '../utils/message/message'
+import type { PostResp } from '../gateway/interface/postResp'
+import { confirmBox, errorMsg, successMsg, warnMsg } from '../utils/message/message'
 import { Log } from '../utils/log/log'
 import { getStorageFromKey, setStorage } from '../utils/storage/config'
-import { getDraftPosts, publishPost, saveUnloadBefore } from '../gateway/api'
+import { createDraftPost, getDraftPosts, publishPost, saveUnloadBefore } from '../gateway/api'
 import router from '../router'
+import { formatTime } from '../utils/time'
 
 const user = shallowRef(getStorageFromKey('cczj_user') as UserResp)
 // 帖子整体数据
-const post = reactive({
-  id: <number>0,
-  title: <string>'',
-  tags: <TagResp[]>[],
-  content: <string>'',
-  images: <UploadUserFile[]>[{
-    name: 'food.jpeg',
-    url: 'https://fuss10.elemecdn.com/3/63/4e7f3a15429bfda99bce42a18cdd1jpeg.jpeg?imageMogr2/thumbnail/360x360/format/webp/quality/100',
-  }]
-})
+const post = ref<PostResp>({} as PostResp)
+// getDraft 获取草稿箱
+const getDraft = async () => {
+  const data = await getDraftPosts()
+  if (!data) {
+    Log.error('views/ThePost', '获取草稿箱失败')
+    return
+  }
+  Log.info('views/ThePost', '获取草稿箱成功', data)
+  // 2. 装填草稿箱信息
+  draftDatas.value = data.posts
+  const postId = router.currentRoute.value.query.postId as string
+  console.log(router.currentRoute.value.query)
+  if (typeof postId !== 'undefined' && postId !== '') {
+    post.value = data.posts.find((item: PostResp) => item.id === parseInt(postId)) as PostResp
+    if (!post.value) {
+      errorMsg('未找到该兼职页, 请联系管理员')
+      Log.error('views/ThePost', '未找到兼职页')
+      router.push('/')
+      return
+    }
+  } else {
+    post.value = data.posts[data.posts.length - 1]
+  }
+  setStorage('cczj_token', data.token)
+}
+getDraft()
+
 const openUpload = shallowRef<boolean>(false)
+
 // 上传图片
 const uploadImage = async (_options: UploadRequestOptions) => {
   Log.info('views/ThePost', 'todo 上传图片')
@@ -34,31 +55,36 @@ const handlePictureCardPreview: UploadProps['onPreview'] = (uploadFile) => {
   dialogImageUrl.value = uploadFile.url!
   dialogVisible.value = true
 }
+
 // 处理发布文章
 const handlePublish = () => {
-  if (post.title.trim() === '') {
-    confirmBox('标题不能为空', '确定', 'warning').then(() => {
-    }).catch(() => { });
+  const pv = unref(post)
+  if (pv.title.trim() === '') {
+    warnMsg('标题不能为空')
     return
   }
   confirmBox('确定要发布文章吗？', '确定', 'success').then(async () => {
     // 1. 装填图片上传信息
-    const formdata = new FormData()
-    post.images.forEach((file) => {
-      formdata.append('file', file.raw!)
-    })
+    if (pv.images) {
+      const formdata = new FormData()
+      pv.images.forEach((file) => {
+        formdata.append('file', file.raw!)
+      })
+    }
     // 2. TODO 上传图片
     // 3. 组装标签ids
     var tagIds = ''
-    post.tags.forEach((tag) => {
-      tagIds += tag.id + ','
-    })
-    if (tagIds[tagIds.length - 1] === ',') {
-      tagIds = tagIds.substring(0, tagIds.length - 1)
+    if (pv.tags) {
+      pv.tags.forEach((tag) => {
+        tagIds += tag.id + ','
+      })
+      if (tagIds[tagIds.length - 1] === ',') {
+        tagIds = tagIds.substring(0, tagIds.length - 1)
+      }
+      Log.info('views/ThePost', '组装帖子标签ids', tagIds)
     }
-    Log.info('views/ThePost', '组装帖子标签ids', tagIds)
     // 4. 发布帖子
-    const data = await publishPost({ postId: post.id, title: post.title, content: post.content, tagIds: tagIds })
+    const data = await publishPost({ postId: pv.id, title: pv.title, content: pv.content, tagIds: tagIds })
     if (!data) {
       Log.error('views/ThePost', '发布帖子失败')
       return
@@ -66,70 +92,107 @@ const handlePublish = () => {
     successMsg('发布帖子成功')
     Log.info('views/ThePost', '发布帖子成功', data)
     setStorage('cczj_token', data.token)
-    router.push({
-      path: '/post/details/' + post.id,
-      query: {
-        post: JSON.stringify(post),
-      }
-    })
-  }).catch(() => { });
+    router.push('/')
+  }).catch((e) => { console.log('取消发布', e) });
 }
 
 // 更新tags
-const updateTags = (_postId: number, tags: TagResp[]) => {
+const updateTags = (postId: number, tags: TagResp[]) => {
   // 此处一定会发生改变，所以不需要深层次比较
-  post.tags = tags
+  post.value.tags = tags
+  draftDatas.value.forEach((item) => {
+    if (item.id === postId) {
+      item.tags = tags
+    }
+  })
 }
 // 更新content
 const updateContent = (content: string) => {
-  post.content = content
+  post.value.content = content
+  draftDatas.value.forEach((item) => {
+    if (item.id === post.value.id) {
+      item.content = content
+    }
+  })
 }
-// getDraft 获取草稿箱
-const getDraft = async () => {
-  const data = await getDraftPosts()
-  if (!data) {
-    Log.error('views/ThePost', '获取草稿箱失败')
+const drawerCraft = shallowRef(false)
+// 点击草稿箱
+const handleDraft = () => {
+  drawerCraft.value = true
+}
+
+const handleClose = () => {
+  drawerCraft.value = false
+}
+const draftDatas = shallowRef<PostResp[]>([])
+const handleEditSwitch = (postId: number) => {
+  const draft = draftDatas.value.find((item) => item.id === postId)
+  if (!draft) {
+    errorMsg('未找到草稿, 请联系管理员')
+    Log.error('views/ThePost', '未找到草稿')
     return
   }
-  Log.info('views/ThePost', '获取草稿箱成功', data)
-  // 2. 装填草稿箱信息
-  const endDraft = data.posts[data.posts.length - 1]
-  post.id = endDraft.id
-  post.title = endDraft.title
-  post.tags = endDraft.tags
-  post.content = endDraft.content
+  if (draft.id === post.value.id) {
+    warnMsg('当前所在就是该草稿, 无需切换')
+    return
+  }
+  handleBeforeUnload(new Event('beforeunload'))
+  successMsg('切换草稿成功')
+  drawerCraft.value = false
+  post.value = draft
+}
+
+// 创建新草稿
+const createDraft = async () => {
+  if (draftDatas.value.length >= 10) {
+    warnMsg('草稿箱太多了, 请删除后再创建捏~')
+    return
+  }
+  const data = await createDraftPost()
+  if (!data) {
+    errorMsg('创建草稿失败')
+    Log.error('views/ThePost', '创建草稿失败')
+    return
+  }
+  Log.info('views/ThePost', '创建草稿成功', data)
+  draftDatas.value.push(data.post)
+  post.value = data.post
+  drawerCraft.value = false
+  successMsg('创建草稿成功')
   setStorage('cczj_token', data.token)
 }
-getDraft()
-// 监听 beforeunload 事件
-onMounted(() => {
-  window.addEventListener('beforeunload', handleBeforeUnload);
-});
-
-// 移除监听事件
-onUnmounted(() => {
-  window.removeEventListener('beforeunload', handleBeforeUnload);
-});
 
 // handleBeforeUnload 关闭事件处理函数
 const handleBeforeUnload = (_event: BeforeUnloadEvent) => {
   var tagIds = ''
-  post.tags.forEach((tag) => {
-    tagIds += tag.id + ','
-  })
-  if (tagIds[tagIds.length - 1] === ',') {
-    tagIds = tagIds.substring(0, tagIds.length - 1)
+  if (post.value.tags) {
+    post.value.tags.forEach((tag) => {
+      tagIds += tag.id + ','
+    })
+    if (tagIds[tagIds.length - 1] === ',') {
+      tagIds = tagIds.substring(0, tagIds.length - 1)
+    }
   }
   Log.info('views/ThePost', '组装帖子标签ids', tagIds)
-  saveUnloadBefore({ postId: post.id, tagIds: tagIds, title: post.title, content: post.content }).then((data) => {
+  saveUnloadBefore({ postId: post.value.id, tagIds: tagIds, title: post.value.title, content: post.value.content }).then((data) => {
     if (!data) {
       Log.error('views/ThePost', '保存草稿箱失败')
       return
     }
     Log.info('views/ThePost', '保存草稿箱成功', data)
-    setStorage('cczj_token', data.token)
   })
+  return
 }
+
+onMounted(() => {
+  // 监听beforeunload事件
+  window.addEventListener('beforeunload', handleBeforeUnload)
+})
+
+// 结束挂载
+onUnmounted(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+});
 </script>
 
 <template>
@@ -153,7 +216,7 @@ const handleBeforeUnload = (_event: BeforeUnloadEvent) => {
           </div>
           <el-input placeholder="请输入标题..." v-model="post.title" class="title" />
           <span class="tips">内容会自动被保存...</span>
-          <el-button class="save-btn" type="success">草稿箱</el-button>
+          <el-button @click="handleDraft" class="save-btn" type="success">草稿箱</el-button>
           <el-button @click="handlePublish" class="post-btn" type="success">点击发布</el-button>
         </div>
         <div class="post-tag">
@@ -165,6 +228,28 @@ const handleBeforeUnload = (_event: BeforeUnloadEvent) => {
         </div>
       </div>
     </div>
+
+    <el-drawer size="500px" v-model="drawerCraft" :before-close="handleClose" direction="ltr" class="demo-drawer">
+      <template #header>
+        <span>草稿箱</span>
+        <el-button class="cczj-mr-5" type="success" @click="createDraft">新建草稿</el-button>
+      </template>
+      <el-scrollbar>
+        <el-card :class="{ 'active': item.id === post.id }" v-for="item in draftDatas" :key="item.id"
+          class="cczj-mb-3 cczj-flex cczj-mr-3">
+          <div class="">
+            <div class="cczj-flex cczj-mb-3 drawer-title">
+              <span>标题：{{ item.title ? item.title : '无' }}</span>
+              <el-tag type="warning">草稿</el-tag>
+            </div>
+            <div class="cczj-mb-3">
+              <span>创建时间：{{ formatTime(item.create_at) }}</span>
+            </div>
+          </div>
+          <el-button type="success" @click="handleEditSwitch(item.id)">编辑</el-button>
+        </el-card>
+      </el-scrollbar>
+    </el-drawer>
     <el-dialog v-model="openUpload" width="500" title="上传图片">
       <el-upload v-model:file-list="post.images" :http-request="uploadImage" list-type="picture-card"
         :on-preview="handlePictureCardPreview">
@@ -310,5 +395,18 @@ const handleBeforeUnload = (_event: BeforeUnloadEvent) => {
   background-color: #fff;
   margin-bottom: 50px;
   height: 100%;
+}
+
+
+:deep(.el-card__body) {
+  width: 100%;
+}
+
+.drawer-title {
+  justify-content: space-between;
+}
+
+.active {
+  background-color: aliceblue;
 }
 </style>

@@ -5,6 +5,13 @@ export declare interface ApiResponse<T> {
   data: T;
 }
 
-export interface TokenResp {
+export declare interface TokenResp {
   token: string;
+}
+
+export declare interface NULLResp {
+}
+
+export declare interface CalendarResp {
+  dates: string[];
 }

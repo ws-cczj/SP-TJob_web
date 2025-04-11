@@ -1,6 +1,7 @@
 import { TagResp } from "./tagResp"
 import { UserResp } from "./userResp"
 import { CommentResp } from "./commentResp"
+import { UploadFiles } from "element-plus"
 
 export declare interface PostResp {
   is_like: boolean
@@ -14,21 +15,35 @@ export declare interface PostResp {
   status: number // 状态
   title: string
   content: string
+  comment: string
   author: UserResp
   comments: CommentResp[]
+  images: UploadFiles
   tags: TagResp[]
   create_at: string
   update_at: string
 }
 
-export declare interface DraftPostResp {
+export declare interface FeedDraftPostResp {
   posts: PostResp[]
+  token: string
+}
+
+export declare interface DraftPostResp {
+  post: PostResp
   token: string
 }
 
 export declare interface FeedPostResp {
   posts: PostResp[]
-  token: string
+}
+
+export declare interface SearchPostResp {
+  posts: PostResp[]
+}
+
+export declare interface HotPostResp {
+  posts: PostResp[]
 }
 
 export declare interface VisitorPostResp {
@@ -36,17 +51,10 @@ export declare interface VisitorPostResp {
 }
 export declare interface DetailsPostResp {
   post: PostResp
-  token: string
 }
-export declare interface VisitorDetailsPostResp {
-  post: PostResp
-}
-
 export declare interface CollectPostResp {
   posts: PostResp[]
-  token: string
 }
 export declare interface PublishPostResp {
   posts: PostResp[]
-  token: string
 }

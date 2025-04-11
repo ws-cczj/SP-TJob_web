@@ -1,7 +1,7 @@
 <script lang="ts" setup>
-import type { ElScrollbar, FormInstance, FormRules, ScrollbarInstance } from 'element-plus'
+import type { FormInstance, FormRules, ScrollbarInstance } from 'element-plus'
 import { getCurrentInstance, nextTick, ref, shallowRef, unref, watch } from 'vue'
-import { smsSend, login, register, updateInfo, closeSession, createSession, searchUser, getSessions, updateSessionTopic, getFeedCollect, getFeedPublishPost } from '../gateway/api'
+import { smsSend, login, register, updateInfo, closeSession, createSession, searchUser, getSessions, updateSessionTopic, getFeedCollect, getFeedPublishPost, getUserinfo, getSearchPost } from '../gateway/api'
 import { alertBox, confirmBox, errorMsg, infoMsg, successMsg, warnMsg } from '../utils/message/message'
 import { clearStorage, getStorageFromKey, setStorage } from '../utils/storage/config'
 import { Log } from '../utils/log/log'
@@ -12,6 +12,7 @@ import hasPermission from '../utils/permission/permission'
 import CCZJWebSocket from '../utils/websocket'
 import store from '../store'
 import { getTimeNow } from '../utils/time'
+import { player } from '../utils/action/audio'
 
 // ------------------- 父子通信区 -------------------
 const { proxy } = getCurrentInstance() as any
@@ -21,6 +22,45 @@ const user = shallowRef(getStorageFromKey('cczj_user') as UserResp || store.data
 const dialogLogin = shallowRef<boolean>(false)
 // 搜索内容
 const searchInput = shallowRef<string>('')
+const handleSuggestions = (_queryString: string, cb: any) => {
+  const title = searchInput.value.trim()
+  if (title === '') {
+    warnMsg('请输入搜索内容')
+    return
+  }
+  getSearchPost({ pageCount: 0, title: title, ids: '' }).then((data) => {
+    if (!data) {
+      Log.error('components', '搜索失败')
+      errorMsg('搜索失败，请联系管理员')
+      return
+    }
+    if (data.posts.length === 0) {
+      return [{ value: '没有搜索到相关内容', link: '' }]
+    }
+    Log.info('components', '建议获取成功', data)
+    const res = data.posts.map((post) => {
+      return {
+        value: post.title,
+        link: window.location.origin + router.resolve({ name: 'details', params: { postId: post.id } }).href
+      }
+    })
+    cb(res)
+  })
+}
+const handleSelect = (item: any) => {
+  window.open(item.link, '_blank')
+}
+const searchPost = () => {
+  const title = searchInput.value.trim()
+  if (title === '') {
+    warnMsg('请输入搜索内容')
+    return
+  }
+  if (router.currentRoute.value.path.includes('search')) {
+    window.location.reload()
+  }
+  window.open(router.resolve({ name: 'search', params: { title: title } }).href, '_blank')
+}
 // 弹窗类型
 const dialogType = shallowRef<boolean>(false)
 // 弹窗登录类型
@@ -32,14 +72,16 @@ const checked = shallowRef<boolean>(false)
 const refForm = ref<FormInstance | null>(null)
 const refFormEmail = ref<FormInstance | null>(null)
 const refPhoneLogin = ref({
+  name: '', // 企业全称
+  oper: '',// 法定代表人姓名，如法人实际为空，则填写“-”代替
+  bcode: '', // 统一社会信用代码
   mobile: '',
   code: ''
 })
 const refEmailLogin = ref({
-  key: '16639528057',
-  password: '123456'
+  key: '',
+  password: ''
 })
-
 const ruleEmail = ref(<FormRules>{
   key: [{
     required: true,
@@ -83,15 +125,15 @@ const rulePhone = ref(<FormRules>{
 })
 const navs = ref([{
   id: 1,
-  name: '首页',
+  name: '兼职网首页',
   url: '/'
 }, {
   id: 2,
-  name: '友圈',
+  name: '兼职圈',
   url: 'talk'
 }, {
   id: 3,
-  name: '消息',
+  name: '兼职消息',
   url: 'message'
 }
 ])
@@ -101,10 +143,9 @@ const dialogMessage = shallowRef(false)
 const isFull = shallowRef(false)
 const handleNav = (signal: string) => {
   if (signal === 'message') {
-    dialogMessage.value = true
     createWebsocket()
   } else if (signal === 'talk') {
-    todo()
+    router.push('/talk')
   } else if (signal === '/') {
     router.push('/')
   }
@@ -120,13 +161,15 @@ const scrollToBottom = () => {
   })
 }
 const ws = shallowRef<CCZJWebSocket | null>(null)
-const createWebsocket = () => {
+const createWebsocket = async () => {
   const token = getStorageFromKey('cczj_token')
   if (token) {
-    feedSessions()
+    dialogMessage.value = true
+    await feedSessions()
     ws.value = new CCZJWebSocket(token)
     ws.value.recive<MessageResp>(async (data: MessageResp) => {
       Log.info('components', '收到消息', data)
+      player.start()
       if (activeSession.value) {
         const dUid = parseInt(data.user_id)
         const dTUid = parseInt(data.target_id)
@@ -171,19 +214,21 @@ const createWebsocket = () => {
   } else {
     dialogLogin.value = true
     store.data.setDialogLogin(true)
-    warnMsg('请先登录')
   }
 }
 
 // handleCloseWebsocket 关闭websocket窗口
 const handleCloseWebsocket = () => {
+  setStorage('cczj_message', isEnterSend.value)
   dialogMessage.value = false
   if (ws.value) {
     ws.value.close()
+    ws.value = null
   }
 }
 const activeSession = ref<SessionResp>();
 const sessions = ref<SessionResp[]>([])
+// 获取会话列表
 const feedSessions = async () => {
   const data = await getSessions()
   if (!data) {
@@ -206,6 +251,7 @@ const sessionTopic = shallowRef('新的会话')
 const topicOnlyRead = shallowRef(true)
 // handleEditSession 编辑会话
 const handleEditSession = async (id: number | undefined) => {
+  judgeWsIsExist()
   if (typeof id === 'undefined' || topicOnlyRead.value) return;
   const content = sessionTopic.value.trim()
   if (content === '') {
@@ -236,6 +282,7 @@ const handleEditSession = async (id: number | undefined) => {
 }
 // 关闭会话窗口
 const handleCloseSession = async (id: number) => {
+  judgeWsIsExist()
   const data = await closeSession(id)
   if (!data) {
     Log.error('components', '关闭会话失败')
@@ -254,6 +301,20 @@ const handleCloseSession = async (id: number) => {
 
 // handleCreateSession 创建新会话
 const handleCreateSession = async (targetId: string) => {
+  judgeWsIsExist()
+  if (targetId === user.value.user_id) {
+    warnMsg('不能与自己聊天')
+    return
+  }
+  const tId = parseInt(targetId)
+  // 判断是否已经存在会话
+  for (let i = 0; i < sessions.value?.length; i++) {
+    if (parseInt(sessions.value[i].target_id) === tId) {
+      handleSessionSwitch(sessions.value[i])
+      dialogSearchUser.value = false
+      return
+    }
+  }
   const data = await createSession(targetId)
   if (!data) {
     Log.error('components', '创建会话失败')
@@ -267,10 +328,16 @@ const handleCreateSession = async (targetId: string) => {
   dialogSearchUser.value = false
 }
 
+const isEnterSend = shallowRef<boolean>(getStorageFromKey('cczj_message') as boolean)
 // 消息发送
-const messageContent = shallowRef('')
-const sendMessage = () => {
-  if (!ws.value) {
+const messageContent = shallowRef<string>('')
+const sendMessage = (type: string = 'click') => {
+  judgeWsIsExist()
+  if (type === 'enter' && !isEnterSend.value) {
+    return
+  }
+  const wss = unref(ws)
+  if (!wss) {
     warnMsg('请重新打开消息窗口')
     return
   }
@@ -279,20 +346,22 @@ const sendMessage = () => {
     warnMsg('请输入消息内容')
     return
   }
-  if (activeSession.value) {
-    ws.value.send<MessageResp>({
+  const acS = unref(activeSession)
+  const userr = unref(user)
+  if (acS) {
+    wss.send<MessageResp>({
       id: '0',
       content: content,
-      user_id: user.value.user_id.toString(),
-      target_id: activeSession.value.target_id.toString(),
+      user_id: userr.user_id.toString(),
+      target_id: acS.target_id.toString(),
       status: 0,
       create_at: getTimeNow()
     })
-    activeSession.value.messages.push({
+    acS.messages.push({
       id: '0',
       content: content,
-      user_id: user.value.user_id.toString(),
-      target_id: activeSession.value.target_id.toString(),
+      user_id: userr.user_id.toString(),
+      target_id: acS.target_id.toString(),
       status: 0,
       create_at: getTimeNow()
     })
@@ -304,6 +373,7 @@ const sendMessage = () => {
 
 // 会话切换
 const handleSessionSwitch = (session: SessionResp) => {
+  judgeWsIsExist()
   activeSession.value = session
   sessionTopic.value = session.topic
 }
@@ -312,12 +382,23 @@ const dialogSearchUser = shallowRef(false)
 const dialogSearchInput = shallowRef<string>('')
 const dialogPage = shallowRef<number>(1)
 const dialogUsersCount = shallowRef(0)
-const dialogUsers = ref<UserResp[]>([])
-const handleSearchUser = async () => {
+const dialogUsers = shallowRef<UserResp[]>([])
+const dialogIsSearch = shallowRef<boolean>(false)
+const handleSearchUser = async (type: string = 'search') => {
+  judgeWsIsExist()
   const nickname = unref(dialogSearchInput).trim()
   if (nickname === '') {
     warnMsg('请输入搜索用户昵称')
     return
+  }
+  dialogIsSearch.value = true
+  if (type === 'search') {
+    // 如果是搜索用户，重置页码
+    dialogPage.value = 1
+  } else if (type === 'next') {
+    dialogPage.value++
+  } else if (type === 'prev') {
+    dialogPage.value--
   }
   const data = await searchUser(dialogPage.value, nickname)
   if (!data) {
@@ -329,46 +410,93 @@ const handleSearchUser = async () => {
     successMsg('没有搜索到用户')
     return
   }
-  dialogPage.value++
-  dialogUsers.value.push(...data.users)
+  dialogUsers.value = data.users
   dialogUsersCount.value = data.count
   Log.info('components', '搜索用户成功', data.users)
   setStorage('cczj_token', data.token)
 }
 
+// 处理页面改变
+const handleSearchUserPage = async (page: number) => {
+  judgeWsIsExist()
+  dialogIsSearch.value = true
+  const nickname = unref(dialogSearchInput).trim()
+  if (nickname === '') {
+    warnMsg('请输入搜索用户昵称')
+    return
+  }
+  const data = await searchUser(page, nickname)
+  if (!data) {
+    Log.error('components', '搜索用户失败')
+    errorMsg('搜索用户失败，请联系管理员')
+    return
+  }
+  if (data.count === 0) {
+    successMsg('没有搜索到用户')
+    return
+  }
+  dialogUsers.value = data.users
+  dialogUsersCount.value = data.count
+  Log.info('components', '搜索用户成功', data.users)
+  setStorage('cczj_token', data.token)
+}
+
+// 判断Websocket是否存在
+const judgeWsIsExist = () => {
+  if (ws && ws.value) {
+    if (ws.value.check()) {
+      return;
+    }
+  }
+  warnMsg('请重新打开消息窗口')
+  dialogMessage.value = false
+  dialogSearchUser.value = false
+}
+
 // 控制头像抽屉的显示与隐藏
 const drawerVisible = shallowRef(false);
 const innerDrawer = shallowRef(false);
-const drawerMenuType = shallowRef('collect');
+const collectList = shallowRef<PostResp[]>([])
+const publishList = shallowRef<PostResp[]>([])
 const drawerMenuList = shallowRef<PostResp[]>([])
 const adminSecret = shallowRef('')
-const handleDrawerMenu = async (type: string) => {
-  if (type === 'collect') {
-    adminSecret.value += '1'
-    const data = await getFeedCollect()
+const handleDrawerMenu = () => {
+  drawerVisible.value = true;
+  adminSecret.value = ''
+  // 1. 打开抽屉先更新用户信息
+  getUserinfo().then(async (data) => {
     if (!data) {
+      Log.error('components', '获取用户信息失败')
+      errorMsg('获取用户信息失败，请联系管理员')
+      return
+    }
+    Log.info('components', '获取用户信息成功', data)
+    setStorage('cczj_token', data.token)
+    setStorage('cczj_user', data.user)
+    user.value = data.user
+    // 2. 获取收藏列表和发布列表
+    const data2 = await getFeedCollect()
+    if (!data2) {
       Log.error('components', '获取收藏列表失败')
       errorMsg('获取收藏列表失败，请联系管理员')
       return
     }
-    Log.info('components', '获取收藏列表成功', data)
-    drawerMenuList.value = data.posts
-    setStorage('cczj_token', data.token)
-  } else if (type === 'publish') {
-    adminSecret.value += '2'
-    const data = await getFeedPublishPost()
-    if (!data) {
+    Log.info('components', '获取收藏列表成功', data2)
+    collectList.value = data2.posts
+    const data3 = await getFeedPublishPost()
+    if (!data3) {
       Log.error('components', '获取发布列表失败')
       errorMsg('获取发布列表失败，请联系管理员')
       return
     }
-    Log.info('components', '获取发布列表成功', data)
-    drawerMenuList.value = data.posts
-    setStorage('cczj_token', data.token)
-  }
-  drawerMenuType.value = type
+    Log.info('components', '获取发布列表成功', data3)
+    publishList.value = data3.posts
+    // 默认收藏列表
+    if (drawerMenuList.value.length === 0) {
+      drawerMenuList.value = collectList.value
+    }
+  })
 }
-handleDrawerMenu('collect')
 // 跳转到详情页
 const handleToDeatails = (postId: number) => {
   window.open(router.resolve({ name: 'details', params: { postId: postId } }).href, '_blank')
@@ -385,10 +513,13 @@ const dailyinit = () => {
 dailyinit()
 // 判断当前路径是否是当前导航
 const judgePath = (url: string): Boolean => {
-  return url === '/'
+  if (url[0] !== '/') {
+    url = '/' + url
+  }
+  return router.currentRoute.value.path === url
 }
 // 搜索建议回调函数
-const querySearchAsync = () => { }
+// const querySearchAsync = () => { }
 // 点击建议时触发
 const drawerWidth = shallowRef<number>(store.data.drawerWidth || 400)
 // 组件 v-el-drawer-drag-width 的回调函数
@@ -446,8 +577,41 @@ const handleLoginAndRegisterBtn = () => {
   }
   refForm.value?.validate(async (valid: boolean) => {
     if (valid) {
+      let type = 20
+      if (dialogType.value) {
+        type = 22
+        const url = `https://v3.alapi.cn/api/ent/check_three_name?token=u3mh0hwzyaf3hyiqe4pdalvjt8fukp&name=${refPhoneLogin.value.name}&oper=${refPhoneLogin.value.oper}&code=${refPhoneLogin.value.bcode}`;
+        const options = {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        };
+
+        try {
+          const response = await fetch(url, options);
+          const { data } = await response.json();
+          if (data.result === '0') {
+            Log.info('components/BaseHeaderComponent', '企业信息不一致', data)
+            warnMsg('企业信息不一致')
+            return
+          } else if (data.result === '2') {
+            Log.info('components/BaseHeaderComponent', '企业信息被更改过，请检查', data)
+            warnMsg('企业信息被更改过，请检查')
+            return
+          }
+        } catch (error) {
+          console.error(error);
+          warnMsg('企业认证服务不可用');
+          return;
+        }
+      }
       // 登录注册处理
-      const data = await register(refPhoneLogin.value)
+      const data = await register({
+        mobile: refPhoneLogin.value.mobile,
+        code: refPhoneLogin.value.code,
+        type: type
+      })
       if (!data) {
         Log.error('components/BaseHeaderComponent', '注册失败', data)
         return
@@ -465,8 +629,12 @@ const handleLoginAndRegisterBtn = () => {
 const handleLoginBtn = () => {
   refFormEmail.value?.validate(async (valid: boolean) => {
     if (valid) {
+      let type = 21
+      if (dialogType.value) {
+        type = 22
+      }
       // 登录注册处理
-      const data = await login(refEmailLogin.value)
+      const data = await login({ key: refEmailLogin.value.key, password: refEmailLogin.value.password, type: type })
       if (!data) {
         Log.error('components/BaseHeaderComponent', '登录失败', data)
         return
@@ -485,10 +653,14 @@ const isLogin = (typeName: string = 'show'): boolean => {
   if (typeName === 'show') {
     return token === null || token === undefined
   }
+  if (typeName === 'talk') {
+    window.open(router.resolve({ name: 'talk' }).href, '_blank')
+    return false
+  }
   if (!token) {
     store.data.setDialogLogin(true)
-  } else {
-    window.open(router.resolve(`/post/${user.value.user_id}`).href, '_blank')
+  } else if (typeName === 'publish') {
+    window.open(window.location.origin + `/post/${user.value.user_id}`, '_blank')
   }
   return true
 }
@@ -577,11 +749,11 @@ const LoginAdmin = () => {
   }
   if (!hasPermission(user.value.role.permission, 'admin')) {
     // TODO 报警发送消息给管理员
-    console.log('没有权限')
+    warnMsg('您没有权限进入管理页面')
     return;
   }
   Log.info('components/BaseHeaderComponent', '进入管理页面: ', user.value.user_id)
-  router.push('/admin')
+  window.open(window.location.origin + ':81/admin', '_blank')
 }
 // 退出登录
 const Logout = () => {
@@ -600,20 +772,27 @@ const handleCancelDialog = (dialog: boolean) => {
   dialogLogin.value = dialog
   store.data.setDialogLogin(dialog)
 }
-const todo = () => {
-  warnMsg('功能开发中...')
-}
 watch(() => store.data.dialogLogin, (newVal, oldVal) => {
   if (newVal !== oldVal) {
     dialogLogin.value = newVal!
   }
 })
 watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
-  if (newVal !== oldVal) {
-    if (newVal && !ws.value) {
-      dialogMessage.value = true
-      createWebsocket()
-      createSession(newVal)
+  if (newVal && newVal !== oldVal) {
+    // newVal 每次开启后都需要设置为0, 表示重置
+    if (newVal !== '0' && !unref(ws)) {
+      createSession(newVal).then(data => {
+        if (!data) {
+          Log.error('components', '创建会话失败')
+          errorMsg('创建会话失败，请联系管理员')
+          return
+        }
+        Log.info('components', '创建会话成功')
+        setStorage('cczj_token', data.token)
+        createWebsocket()
+        // 重置会话ID
+        store.data.setDialogSessionId('0')
+      }).catch(() => { })
     }
   }
 })
@@ -622,20 +801,21 @@ watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
 <template>
   <header class="nav-header">
     <nav>
-      <a @click="handleNav('/')" href="#" target="_self" class="logo" style="width:100px;">
-        <img src="@/assets/img/cczj_blue_logo.png" alt="logo" />
+      <a @click="handleNav('/')" href="javascript:void(0)" target="_self" class="logo" style="width:150px;">
+        <span class="logo-text">大学生兼职平台</span>
       </a>
       <ul class="nav-header-menu">
         <li v-for="nav in navs" :key="nav.id" class="hover-class nav-header-menuitem">
           <a id="nav-home" @click.stop="handleNav(nav.url)" target="_self"
-            class="hover-class nc-nav-header-menu-active">{{
-              nav.name }}</a>
+            class="hover-class nc-nav-header-menu-active">
+            {{ nav.name }}
+          </a>
           <div class="line" v-show="judgePath(nav.url)" />
         </li>
       </ul>
       <div class="nav-header-search">
-        <el-autocomplete v-model="searchInput" :trigger-on-focus="false" :fetch-suggestions="querySearchAsync"
-          placeholder="搜索题目">
+        <el-autocomplete v-model="searchInput" @select="handleSelect" :fetch-suggestions="handleSuggestions"
+          :trigger-on-focus="false" @keydown.enter="searchPost" placeholder="寻找兼职">
           <template #suffix>
             <div class="cus-search-suffix">
               <div class="search-suffix-vertical"></div>
@@ -651,14 +831,14 @@ watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
                   </g>
                 </svg>
               </span>
-              <span @click="todo()">搜索</span>
+              <span @click="searchPost">搜索</span>
             </div>
           </template>
         </el-autocomplete>
       </div>
       <div class="header-publish-job-wrap cczj-mx-5">
         <el-dropdown placement="bottom-start">
-          <a @click="isLogin('click')"
+          <a @click="isLogin('publish')"
             class="recruit cczj-flex cczj-items-center cczj-cursor-pointer el-dropdown-selfdefine"
             href="javascript:void(0)">
             广开言路
@@ -671,7 +851,7 @@ watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
           <template #dropdown>
             <ul>
               <li tabindex="-1" class="dropdown-item-publish-job">
-                <a @click="isLogin('click')" href="javascript:void(0)" class="cczj-flex cczj-items-center">
+                <a @click="isLogin('publish')" href="javascript:void(0)" class="cczj-flex cczj-items-center">
                   <img src="https://static.nowcoder.com/fe/file/images/web/header/headerPublishJob.png"
                     class="cczj-width-38 cczj-mr-2 cczj-flex-none">
                   <div class="cczj-flex-auto">
@@ -699,7 +879,7 @@ watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
                 </a>
               </li>
               <li tabindex="-1" class="dropdown-item-more-solution cczj-mt-2">
-                <a @click="isLogin('click')" href="javascript:void(0)" class="cczj-flex cczj-items-center">
+                <a @click="isLogin('publish')" href="javascript:void(0)" class="cczj-flex cczj-items-center">
                   <img src="https://static.nowcoder.com/fe/file/images/web/header/headerMoreSolution.png"
                     class="cczj-w-38 cczj-mr-2 cczj-flex-none">
                   <div class="cczj-flex-auto">
@@ -728,7 +908,7 @@ watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
                 </a>
               </li>
               <li tabindex="-1" class="dropdown-item-more-solution cczj-mt-2">
-                <a @click="isLogin('click')" href="javascript:void(0)" class="cczj-flex cczj-items-center">
+                <a @click="isLogin('talk')" href="javascript:void(0)" class="cczj-flex cczj-items-center">
                   <svg t="1738983520817" class="icon" viewBox="0 0 1024 1024" version="1.1"
                     xmlns="http://www.w3.org/2000/svg" p-id="1310" width="40" height="40">
                     <path
@@ -776,7 +956,7 @@ watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
       </div>
       <div v-else v-el-drawer-drag-width="handleWidthChange" class="avatar-container">
         <!-- 点击头像触发抽屉 -->
-        <el-avatar class="cczj-cursor-pointer" :size="36" :src="user?.avatar" @click="drawerVisible = true" />
+        <el-avatar class="cczj-cursor-pointer" :size="36" :src="user?.avatar" @click="handleDrawerMenu()" />
         <!-- 抽屉 -->
         <el-drawer v-model="drawerVisible" :direction="'rtl'" :size="`${drawerWidth}px`">
           <template #header="{ titleId, titleClass }">
@@ -805,29 +985,25 @@ watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
             </div>
           </div>
           <div class="drawer-main">
-            <div class="slip-menu">
-              <el-menu text-color="var(--el-menu-text-color)" :ellipsis="false" mode="horizontal" :default-active="'1'"
-                class="el-menu-vertical-demo">
-                <el-menu-item @click="handleDrawerMenu('collect')" index="1">
-                  收藏：{{ user.collect_count }}
-                </el-menu-item>
-                <el-menu-item @click="handleDrawerMenu('publish')" index=" 2">
-                  发布：{{ user.publish_count }}
-                </el-menu-item>
-              </el-menu>
-            </div>
-            <div>
-              <el-scrollbar height="400px">
-                <div>
-                  <div v-for="data in drawerMenuList" :key="data.id" class="menu-card">
-                    <div @click="handleToDeatails(data.id)" class="cczj-flex cczj-items-center menu-card-title">
-                      <span>标题：{{ data.title ? data.title : '无标题' }}</span>
-                      <el-tag class="cczj-mt-3 cczj-ml-3">已发布</el-tag>
-                    </div>
-                  </div>
+            <el-scrollbar class="custom-scrollbar">
+              <div class="slip-menu">
+                <el-menu text-color="var(--el-menu-text-color)" :ellipsis="false" mode="horizontal"
+                  :default-active="'1'" class="el-menu-vertical-demo">
+                  <el-menu-item @click="drawerMenuList = collectList; adminSecret += '1'" index="1">
+                    收藏：{{ user.collect_count }}
+                  </el-menu-item>
+                  <el-menu-item @click="drawerMenuList = publishList; adminSecret += '2'" index="2">
+                    发布：{{ user.publish_count }}
+                  </el-menu-item>
+                </el-menu>
+              </div>
+              <div v-for="data in drawerMenuList" :key="data.id" class="menu-card">
+                <div @click="handleToDeatails(data.id)" class="cczj-flex cczj-items-center menu-card-title">
+                  <span>{{ data.title ? data.title : '无标题' }}</span>
+                  <el-tag class="menu-card-status cczj-mt-3 cczj-ml-3">已发布</el-tag>
                 </div>
-              </el-scrollbar>
-            </div>
+              </div>
+            </el-scrollbar>
           </div>
           <div class="drawer-footer">
             <div class="top-content">
@@ -920,6 +1096,15 @@ watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
                     </ul>
                   </div>
                   <el-form v-show="!dialogLoginType" ref="refForm" :model="refPhoneLogin" :rules="rulePhone">
+                    <el-form-item v-show="dialogType" prop="name">
+                      <el-input v-model="refPhoneLogin.name" placeholder="请输入企业名称"></el-input>
+                    </el-form-item>
+                    <el-form-item v-show="dialogType" prop="oper">
+                      <el-input v-model="refPhoneLogin.oper" placeholder="法定代表人姓名，如法人实际为空，则填写“-”代替"></el-input>
+                    </el-form-item>
+                    <el-form-item v-show="dialogType" prop="bcode">
+                      <el-input v-model="refPhoneLogin.bcode" placeholder="统一社会信用代码"></el-input>
+                    </el-form-item>
                     <el-form-item prop="mobile">
                       <el-input type="tel" class="el-input-group" v-model="refPhoneLogin.mobile" placeholder="请输入手机号">
                       </el-input>
@@ -992,7 +1177,7 @@ watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
                     </el-icon>
                     {{ isFull ? '退出全屏' : '全屏' }}
                   </el-button>
-                  <el-button class="cczj-ml-1" @click="dialogSearchUser = true">
+                  <el-button class="cczj-ml-1" @click="dialogSearchUser = true; dialogIsSearch = false">
                     <el-icon :size="15" class="el-icon--left">
                       <CirclePlus />
                     </el-icon>
@@ -1028,10 +1213,13 @@ watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
                 <div class="input-wrapper">
                   <!-- 按回车键发送，输入框高度三行 -->
                   <el-input v-model="messageContent" :autosize="false" :rows="3" class="input" resize="none"
-                    type="textarea" @keydown.enter="sendMessage">
+                    type="textarea" @keydown.enter="sendMessage('enter')">
                   </el-input>
                   <div v-show="activeSession" class="button-wrapper">
-                    <el-button type="primary" @click="sendMessage">
+                    <div @click="isEnterSend = !isEnterSend" class="Enter-mode cczj-mr-3">
+                      {{ isEnterSend ? '关闭' : '开启' }}Enter发送
+                    </div>
+                    <el-button type="primary" @click="sendMessage('click')">
                       <el-icon class="el-icon--left">
                         <Position />
                       </el-icon>
@@ -1044,30 +1232,47 @@ watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
           </div>
         </div>
       </el-dialog>
-      <el-dialog @keydown.enter="handleSearchUser" class="dialog-search" :close-on-click-modal="false" :modal="false"
-        v-model="dialogSearchUser" @close="dialogSearchUser = false" draggable>
-        <el-input class="dialog-input cczj-mb-5" v-model="dialogSearchInput">
-          <template #append>
-            <el-icon class="cczj-cursor-pointer" @click="handleSearchUser">
-              <Search />
-            </el-icon>
-            <el-button maxlength="200" clearable @click="handleSearchUser" type="success"
-              icon="el-icon-search">搜索</el-button>
-          </template>
-        </el-input>
-        <div class="search">
-          <div class="search-box cczj-flex-wrap cczj-flex cczj-ml-80">
-            <el-card v-for="user in dialogUsers" :key="user.id" class="cczj-ml-3 search-card">
-              <div class="card-info cczj-flex">
-                <el-avatar :size="32" :src="user.avatar" />
-                <el-button @click="handleCreateSession(user.user_id)" class="cczj-ml-5" type="success"
-                  size="small">沟通</el-button>
-              </div>
-              <div class="cczj-mt-3">{{ user.nickname }}</div>
-            </el-card>
+      <el-dialog :close-on-click-modal="false" :modal="false" v-model="dialogSearchUser"
+        @close="dialogSearchUser = false" draggable>
+        <div class="search-container">
+          <div class="search-header">
+            <el-input v-model="dialogSearchInput" placeholder="请输入用户名或关键词" clearable>
+              <template #append>
+                <el-button type="success" @keydown.enter="handleSearchUser()" @click="handleSearchUser()"
+                  class="search-btn">搜索</el-button>
+              </template>
+            </el-input>
           </div>
-          <el-pagination v-show="dialogUsersCount > 9" size="small" background layout="prev, pager, next"
-            :total="dialogUsersCount" class="cczj-ml-80 cczj-mt-4" />
+          <!-- 用户列表 -->
+          <div class="user-list">
+            <div class="search-result">{{ dialogIsSearch ? `共有 ${dialogUsersCount} 个搜索结果` : '推荐用户' }}</div>
+            <div class="user-grid">
+              <el-card v-for="user in dialogUsers" :key="user.id" class="user-card" shadow="hover">
+                <div class="card-content">
+                  <div class="user-info">
+                    <el-avatar :size="48" :src="user.avatar" class="user-avatar" />
+                    <div class="user-meta">
+                      <div class="nickname">{{ user.nickname }}</div>
+                      <div class="user-id">ID: {{ user.user_id }}</div>
+                    </div>
+                  </div>
+                  <el-button type="success" size="small" class="chat-btn" @click="handleCreateSession(user.user_id)">
+                    <el-icon>
+                      <ChatDotRound />
+                    </el-icon>
+                    <span>发起聊天</span>
+                  </el-button>
+                </div>
+              </el-card>
+            </div>
+          </div>
+
+          <!-- 分页 -->
+          <div class="pagination-wrapper" v-show="dialogUsersCount > 10">
+            <el-pagination @current-change="handleSearchUserPage" @prev-click="handleSearchUser('prev')"
+              @next-click="handleSearchUser('next')" background layout="prev, pager, next" :total="dialogUsersCount"
+              :page-size="10" />
+          </div>
         </div>
       </el-dialog>
     </nav>
@@ -1097,12 +1302,14 @@ watch(() => store.data.dialogSessionId, (newVal, oldVal) => {
 
 .nav-header .logo {
   align-items: center;
-  display: flex;
   flex-shrink: 0;
 }
 
-.nav-header .logo img {
+.nav-header .logo-text {
   height: 40px;
+  font-size: larger;
+  width: 100px;
+  color: var(--project_base_color_hover);
 }
 
 .nav-header a {
@@ -1405,11 +1612,14 @@ nav .avatar-container .el-avatar:hover {
   background-color: var(--el-bg-color);
   border-radius: 3%;
   height: calc(70% - 105px);
-  /* 固定高度 */
-  overflow: auto;
   /* 内容超出时显示滚动条 */
   margin-top: 3px;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.custom-scrollbar :deep(.el-scrollbar__bar.is-horizontal),
+.custom-scrollbar :deep(.el-scrollbar__bar.is-vertical) {
+  opacity: 0;
 }
 
 .avatar-container .drawer-main .slip-menu {
@@ -1422,21 +1632,61 @@ nav .avatar-container .el-avatar:hover {
 }
 
 .menu-card {
-  box-shadow: 0 1px 1px 1px rgba(8, 8, 8, 0.1);
-  margin: 5px;
+  border-bottom: 1px solid var(--project_base_color);
   height: 60px;
-  border-radius: 5px;
+  padding: 12px 16px;
+  transition: background-position 0.4s ease-out;
+  /* 只过渡背景位置 */
+  position: relative;
+  /* 关键修正：创建实际可见的渐变段 */
+  background: linear-gradient(to right,
+      var(--project_base_color) 0%,
+      var(--el-bg-color) 42%,
+      transparent 30%);
+  background-size: 200% 100%;
+  /* 双倍宽度 */
+  background-position: 100% 0;
+  /* 初始完全隐藏主色 */
+  background-repeat: no-repeat;
+  border-radius: 1px;
 }
 
 .menu-card:hover {
-  background-color: var(--project_base_color);
+  background-position: 0% 0;
+  /* 完全显示主色区域 */
   cursor: pointer;
+  overflow: hidden;
 }
 
 .menu-card .menu-card-title {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  line-height: 20px;
-  margin: 0 10px;
+  line-height: 24px;
+  /* 增加行高 */
+  font-weight: 500;
+  color: #2d3748;
+  /* 加深文字颜色 */
+}
+
+.menu-card .menu-card-status {
+  position: absolute;
+  top: 8px;
+  /* 调整位置 */
+  right: 16px;
+  background: #48bb78;
+  /* 状态标签颜色 */
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+}
+
+/* 增加图标间距 */
+.menu-card .el-icon {
+  margin-right: 12px;
+  font-size: 1.2rem;
+  color: var(--project_base_color);
 }
 
 .el-menu--horizontal>.el-menu-item:hover {
@@ -1450,6 +1700,23 @@ nav .avatar-container .el-avatar:hover {
 .el-menu--horizontal>.el-menu-item.is-active {
   color: var(--project_base_color) !important;
   border-bottom: 2px solid var(--project_base_color) !important;
+}
+
+/* 新增加载动画 */
+@keyframes menu-entry {
+  0% {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.menu-card {
+  animation: menu-entry 0.4s ease-out;
 }
 
 nav .avatar-container .drawer-footer {
@@ -1940,7 +2207,6 @@ nav .avatar-container .drawer-footer .admin-into {
 }
 
 .message-list {
-  min-height: 480px;
   padding: 20px;
 }
 
@@ -1957,10 +2223,30 @@ nav .avatar-container .drawer-footer .admin-into {
 
 .message-input {
   position: absolute;
-  top: 80%;
-  width: 73%;
+  top: 70%;
+  width: 75%;
   padding: 20px;
   border-top: 1px solid rgba(8, 8, 8, 0.07);
+}
+
+@media screen and (max-width: 2024px) {
+  .message-list {
+    min-height: 480px;
+  }
+
+  .message-input {
+    top: 80%;
+  }
+}
+
+@media screen and (max-width: 1536px) {
+  .message-list {
+    min-height: 400px;
+  }
+
+  .message-input {
+    top: 75%;
+  }
 }
 
 .session-list .session {
@@ -1988,44 +2274,145 @@ nav .avatar-container .drawer-footer .admin-into {
   margin-top: 10px;
 }
 
-:deep(.dialog-search) {
+.Enter-mode {
+  height: 25px;
+  border: 1px solid var(--el-color-primary);
+  border-radius: 4px;
+  padding: 5px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.Enter-mode:hover {
+  cursor: pointer;
+  color: #fff;
+  background: var(--el-color-primary);
+  opacity: 0.7;
+  transition: color 0.3s ease;
+}
+
+:deep(.el-overlay-dialog) {
+  top: -60px !important;
+}
+
+.search-container {
+  display: flex;
+  flex-direction: column;
   height: 500px;
 }
 
-.dialog-input {
-  width: 80%;
-  margin-left: 10%;
-  height: 40px;
+.search-header {
+  padding: 0 20px 20px;
 }
 
-.search .search-box {
-  gap: 10px;
+.search-header .el-input {
+  max-width: 666px;
+  margin: 0 auto;
+}
+
+.search-header .el-input-group__append {
+  background: var(--el-color-success);
+  border-color: var(--el-color-success);
+}
+
+.search-header .search-btn {
+  padding: 0 20px;
+}
+
+.user-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 20px;
+}
+
+.search-result {
+  font-size: 16px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 10px;
+}
+
+.user-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+  padding-bottom: 20px;
+}
+
+.user-card {
+  transition: all 0.3s ease;
+  border-radius: 8px;
+}
+
+.user-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--el-box-shadow-light);
+}
+
+.card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-avatar {
+  flex-shrink: 0;
+}
+
+.user-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.nickname {
+  font-weight: 500;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-id {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.chat-btn {
   width: 100%;
+  transition: all 0.2s ease;
 }
 
-.dialog-search .search-card {
-  flex: 0 0 calc(25% - 10px * 3 / 4);
-  /* 四列计算 */
-  max-width: calc(25% - 10px * 3 / 4);
-  /* 防止弹性扩展 */
-  box-sizing: border-box;
-  user-select: none;
+.chat-btn:hover {
+  opacity: 0.9;
 }
 
-.dialog-search .search-card:hover {
-  background-color: #eefaf7;
+.chat-btn span {
+  margin-left: 6px;
 }
 
-.card-info {
-  align-items: flex-start;
-  justify-content: space-between;
+.pagination-wrapper {
+  padding: 20px 0;
+  border-top: 1px solid var(--el-border-color-light);
+  display: flex;
+  justify-content: center;
 }
 
-@media (max-width: 1200px) {
-  .search-card {
-    /* 三列计算 */
-    flex-basis: calc(33.33% - 10px * 2 / 3);
-    max-width: calc(33.33% - 10px * 2 / 3);
+@media (max-width: 768px) {
+  .user-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .search-header {
+    padding: 0 10px 15px;
+  }
+
+  .search-header .el-input {
+    width: 100%;
   }
 }
 </style>

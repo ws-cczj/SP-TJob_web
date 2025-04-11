@@ -14,6 +14,11 @@ export declare interface UserResp {
   signature?: string
 }
 
+export declare interface UserInfoResp {
+  user: UserResp
+  token: string
+}
+
 export declare interface LoginResp {
   token: string
   user: UserResp

@@ -15,7 +15,7 @@ class Logger {
   private isDev: boolean;
   
   constructor() {
-    this.isDev = import.meta.env.VITE_APP_SERVER_MODE === "development";
+    this.isDev = import.meta.env.MODE === "development";
     this.printWelcome();
   }
 

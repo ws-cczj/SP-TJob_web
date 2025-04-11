@@ -26,20 +26,19 @@ const handleCreateComment = async (f_id: number, uniqueId: number, targetId: num
     errorMsg('请联系管理员');
     return;
   }
+  var contentR = '';
   if (f_id === 0) {
-    if (!rootContent.value) {
-      warnMsg('请输入评论内容');
-      return;
-    }
+    contentR = rootContent.value.trim();
   } else {
-    if (!content.value[uniqueId]) {
-      warnMsg('请输入评论内容');
-      return;
-    }
+    contentR = content.value[uniqueId].trim();
+  }
+  if (!contentR) {
+    warnMsg('请输入评论内容');
+    return;
   }
   const data = await createComment({
     f_id: f_id,
-    content: content.value[uniqueId],
+    content: contentR,
     target_id: targetId
   });
   if (!data) {

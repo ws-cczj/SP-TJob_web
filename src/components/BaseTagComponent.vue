@@ -57,6 +57,7 @@ const handleEnter = async () => {
     return
   }
   setStorage('cczj_token', data.token)
+  tagInput.value = ''
   Log.info('components/BaseTagCompontent', '创建标签成功', data.tag)
   if (props.tags === null) {
     emit('updateTags', props.postId, [data.tag] as TagResp[])

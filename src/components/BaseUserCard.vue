@@ -1,9 +1,27 @@
 <script lang="ts" setup>
+import store from '../store';
 import { UserResp } from '../gateway/interface/userResp';
+import { getStorageFromKey } from '../utils/storage/config';
+import { warnMsg } from '../utils/message/message';
 
 const props = defineProps<{
   user: UserResp;
 }>();
+const handleSession = () => {
+  const token = getStorageFromKey('cczj_token');
+  const user = getStorageFromKey('cczj_user');
+  if (!token || !user) {
+    // 如果token为空说明没有登录，跳转到登录页面
+    store.data.setDialogLogin(true)
+    return;
+  }
+  if (user.user_id === props.user.user_id) {
+    // 如果通话目标是自己，则不能发起通话
+    warnMsg('不能和自己发起通话');
+    return;
+  }
+  store.data.setDialogSessionId(props.user.user_id);
+};
 </script>
 
 <template>
@@ -16,7 +34,8 @@ const props = defineProps<{
       </div>
     </div>
   </div>
-  <el-button style="width: 100%;" class="cczj-mt-5" type="success">与{{ user.gender === 0 ? '她' : '他' }}沟通</el-button>
+  <el-button @click="handleSession()" style="width: 100%;" class="cczj-mt-5" type="success">与{{ user.gender === 0 ? '她'
+    : '他' }}沟通</el-button>
   <el-divider style="margin: 12px 0;" />
   <div class="cczj-flex user-card-content">
     <div style="display: grid;">
@@ -32,7 +51,7 @@ const props = defineProps<{
 
 <style lang="css" scoped>
 .user-card-header {
-  height: 40px;
+  height: 48px;
 }
 
 .user-card-content {

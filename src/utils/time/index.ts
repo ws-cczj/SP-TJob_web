@@ -23,6 +23,17 @@ export const getTimeToDay = (day: number): string => {
     return `${target.getFullYear()}-${padZero(target.getMonth()+1)}-${padZero(target.getDate())} ` +
            `${padZero(target.getHours())}:${padZero(target.getMinutes())}:${padZero(target.getSeconds())}` 
 }
+
+export const generateRandomDateTime = () => {
+    // 获取当前时间和未来7天的时间范围 
+    const now = new Date();
+    // 生成随机时间戳（当前时间到未来7天内的随机毫秒数）
+    const randomTime = now.getTime()  + Math.random()  * 604800;
+    const randomDate = new Date(randomTime);
+ 
+    return randomDate.getTime() - now.getTime();
+}
+
 // 转换时间格式为当前标准格式
 export const formatTime = (time: string | undefined): string => {
   if (typeof time === 'undefined') { 
@@ -34,7 +45,7 @@ export const formatTime = (time: string | undefined): string => {
 }
 
 // 转换时间格式为当前标准格式 无时分秒
-export const formatTimeNoDetail = (time: string | undefined): string => {
+export const formatTimeNoDetail = (time: string | number | undefined): string => {
   if (typeof time === 'undefined') { 
     return '2006-01-02'
   }
@@ -58,5 +69,40 @@ export const isExceedOneMinute = (timeStr: string|undefined): boolean => {
     } catch (e) {
         console.error("Invalid  date format:", e);
         return false;
+    }
+}
+
+/**
+ * 计算传入时间与当前时间的差值，返回人性化时间描述 
+ * @param timeString 时间字符串
+ * @returns 时间差描述或原字符串 
+ */
+export const timeAgo = (timeString: string|undefined): string => {
+    if (typeof timeString === 'undefined') return getTimeNow();
+    try {
+      const targetDate = new Date(timeString);
+      const currentDate = new Date();
+      
+      // 验证日期有效性 [16]()
+      if (isNaN(targetDate.getTime()))  return formatTimeNoDetail(timeString);
+
+      // 计算时间差（毫秒）
+      const timeDiff = currentDate.getTime()  - targetDate.getTime(); 
+      
+      // 计算时间差单位 [17]()
+      const seconds = Math.floor(timeDiff  / 1000);
+      const minutes = Math.floor(seconds  / 60);
+      const hours = Math.floor(minutes  / 60);
+      const days = Math.floor(hours / 24);
+    
+        // 判断时间区间 [9]()
+      if (days > 30) return formatTimeNoDetail(timeString); // 超过30天返回原时间
+      if (hours > 24) return `${days}天前`;
+      if (hours > 0) return `${hours}小时前`;
+      if (minutes > 0) return `${minutes}分钟前`;
+        
+      return "刚刚";  // 小于1分钟 
+    } catch (e) {
+      return formatTimeNoDetail(timeString);  // 异常情况返回原字符串 [5]()
     }
 }

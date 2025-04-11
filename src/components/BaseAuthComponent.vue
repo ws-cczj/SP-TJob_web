@@ -64,7 +64,7 @@ const props = defineProps<{
     </svg>
     <span v-if="props.textShow">捶友认证</span>
   </span>
-  <span v-else-if="props.roleId === 21" class="header-auth">
+  <span v-else-if="props.roleId === 22" class="header-auth">
     <svg t="1738982305466" class="icon" viewBox="0 -200 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg"
       p-id="1279" width="20" height="20">
       <path d="M943.6 1024H586V190l366.5 127.2C977.9 326.1 995 350 995 377v595.6c0 28.4-23 51.4-51.4 51.4z"
@@ -81,7 +81,7 @@ const props = defineProps<{
     </svg>
     <span v-if="props.textShow">企业认证</span>
   </span>
-  <span v-else-if="props.roleId === 22" class="header-auth">
+  <span v-else-if="props.roleId === 23" class="header-auth">
     <svg t="1739881569516" class="icon" viewBox="0 -200 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg"
       p-id="1539" width="20" height="20">
       <path d="M128 0l768 384-704 352V1024H128V0z" fill="#1afa29" p-id="1540"></path>

@@ -1,11 +1,12 @@
 <script lang="ts" setup>
-import { ref } from 'vue'
-const loading = ref(true)
+const props = defineProps<{
+  loading: boolean
+}>()
 </script>
 
 <template>
   <!-- 内容骨架屏 -->
-  <el-skeleton direction="vertical" alignment="flex-start" :loading="loading" animated
+  <el-skeleton direction="vertical" alignment="flex-start" :loading="props.loading" animated
     class="content-skeleton cczj-skeleton">
     <template #template>
       <div class="avatar">

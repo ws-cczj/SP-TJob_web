@@ -20,7 +20,6 @@ import zhHans from 'bytemd/locales/zh_Hans.json';
 import gfmZhHans from '@bytemd/plugin-gfm/locales/zh_Hans.json'
 import mermaidZhHans from "@bytemd/plugin-mermaid/locales/zh_Hans.json"
 import mathZhHans from "@bytemd/plugin-math/locales/zh_Hans.json"
-import { setStorage } from '../utils/storage/config';
 import { savePostContent } from '../gateway/api';
 import { Log } from '../utils/log/log';
 const plugins = ref([
@@ -45,7 +44,7 @@ const porps = defineProps<{
   mode: string
 }>()
 const emit = defineEmits(['updateContent'])
-const timeout = ref<number>(0)
+const timeout = ref<any>(0)
 const handleChange = (value: string) => {
   emit('updateContent', value)
   if (timeout.value) {
@@ -59,7 +58,6 @@ const handleChange = (value: string) => {
       return;
     }
     Log.info('components/BaseMarkDown', '保存帖子内容成功')
-    setStorage('cczj_token', data.token)
   }, 10000)
 }
 const handlePaste = async (event: any) => {

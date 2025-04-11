@@ -59,6 +59,9 @@ importers:
       juejin-markdown-themes:
         specifier: ^1.34.0
         version: 1.34.0
+      lunar-typescript:
+        specifier: ^1.7.8
+        version: 1.7.8
       pinia:
         specifier: ^2.3.0
         version: 2.3.0(typescript@5.6.3)(vue@3.5.13(typescript@5.6.3))
@@ -1107,6 +1110,9 @@ packages:
 
   longest-streak@3.1.0:
     resolution: {integrity: sha512-9Ri+o0JYgehTaVBBDoMqIl8GXtbWg711O3srftcHhZ0dqnETqLaoIK0x17fUw9rFSlK/0NlsKe0Ahhyl5pXE2g==}
+
+  lunar-typescript@1.7.8:
+    resolution: {integrity: sha512-i1rjc1eDHUF4k8NfpYxar3ZKtxyVHOGnR+yVTMS8jMy74ugq7KeHI+8T1XIvB3uojpBq6asywe7z25PmI3VLPw==}
 
   magic-string@0.30.17:
     resolution: {integrity: sha512-sNPKHvyjVf7gyjwS4xGTaW/mCnF8wnjtifKBEhxfZ7E/S8tQ0rssrwGNn6q8JH/ohItJfSQp9mBtQYuTlH5QnA==}
@@ -2625,6 +2631,8 @@ snapshots:
   lodash@4.17.21: {}
 
   longest-streak@3.1.0: {}
+
+  lunar-typescript@1.7.8: {}
 
   magic-string@0.30.17:
     dependencies:

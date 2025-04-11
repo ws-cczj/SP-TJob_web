@@ -16,6 +16,10 @@ const showTime = (type: string = 'bool'): boolean | string => {
   }
   return time!
 }
+const handleContent = (content: string): string => {
+  // 处理消息内容，替换掉空格和换行符
+  return content
+}
 
 </script>
 
@@ -32,7 +36,7 @@ const showTime = (type: string = 'bool'): boolean | string => {
         <el-avatar v-if="props.position === 'left'" :src="user?.avatar" class="avatar cczj-mr-2" shape="square" />
         <!-- 发送的消息或者回复的消息 -->
         <div class="message cczj-mt-2">
-          <p>{{ message.content }}</p>
+          <p v-html="handleContent(message.content)"></p>
         </div>
         <el-avatar v-if="props.position === 'right'" :src="user?.avatar" class="avatar cczj-ml-2" shape="square" />
       </div>
@@ -71,10 +75,21 @@ const showTime = (type: string = 'bool'): boolean | string => {
 
 .message-row .row .message {
   font-size: 15px;
-  padding: 1.5px;
-  max-width: 500px;
+  padding: 5.5px;
   border-radius: 7px;
   border: 1px solid rgba(8, 8, 8, 0.1);
   box-shadow: 20px 20px 20px 1px rgba(0, 0, 0, 0.01);
+}
+
+@media screen and (max-width: 2024px) {
+  .message-row .row .message {
+    max-width: 500px;
+  }
+}
+
+@media screen and (max-width: 1536px) {
+  .message-row .row .message {
+    max-width: 400px;
+  }
 }
 </style>

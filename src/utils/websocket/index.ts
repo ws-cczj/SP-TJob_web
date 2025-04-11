@@ -4,11 +4,11 @@ import { errorMsg, warnMsg } from "../message/message";
 export default class CCZJWebSocket {
   private ws: WebSocket;
   private connecting: boolean;
-  private heartbeat: number;
-  private timeout: number
+  private heartbeat: NodeJS.Timeout;
+  private timeout: NodeJS.Timeout;
 
   constructor(token: string, callback?: () => void) {
-    this.ws = new WebSocket(`ws://localhost:8437/v1/api/ws?token=${token}`);
+    this.ws = new WebSocket(`ws://8.134.19.49:8437/v1/api/ws?token=${token}`);
     this.ws.onopen = (_e: Event) => {
       callback && callback();
       Log.debug('websocket', 'ws连接成功');
@@ -21,7 +21,7 @@ export default class CCZJWebSocket {
       clearInterval(this.heartbeat);
       this.ws.close(3001, 'ws连接发生错误');
     };
-    this.timeout = 0;
+    this.timeout = setTimeout(() => { });
     this.connecting = true;
     this.heartbeat = setInterval(() => this.heartbeatInterval(), 1000 * 30);
   }
@@ -55,7 +55,10 @@ export default class CCZJWebSocket {
     this.ws.close(1000, '主动关闭');
     Log.debug('websocket','主动关闭ws连接');
   }
-
+  // 检查连接状态
+  public check():boolean {
+    return this.connecting;
+  }
   // 心跳检测
   private heartbeatInterval() {
     if (!this.connecting) return;

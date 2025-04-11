@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
   if (mode === 'development') {
     console.log('env: ', env);
   }
-  const { VITE_APP_SERVER_PORT, VITE_APP_SERVER_TARGET } = env;
+  const { VITE_APP_SERVER_PORT, VITE_APP_SERVER_TARGET} = env;
   return {
     server: {
       open: true,
